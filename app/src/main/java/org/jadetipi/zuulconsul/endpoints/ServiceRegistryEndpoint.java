@@ -43,7 +43,7 @@ public class ServiceRegistryEndpoint extends HttpSyncEndpoint {
     private static final Logger log = LoggerFactory.getLogger(ServiceRegistryEndpoint.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final DateTimeFormatter DATE_FORMAT =
-        DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm:ss z").withZone(ZoneId.systemDefault());
+        DateTimeFormatter.ISO_OFFSET_DATE_TIME.withZone(ZoneId.systemDefault());
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final ConsulServiceRegistry registry;
