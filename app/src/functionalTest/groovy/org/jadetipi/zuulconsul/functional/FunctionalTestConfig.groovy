@@ -24,6 +24,16 @@ class FunctionalTestConfig {
     /** Nginx status URL - for health checks and metrics */
     static final String NGINX_STATUS_URL = System.getenv('NGINX_STATUS_URL') ?: 'http://localhost:8888'
 
+    /** CouchDB URL for stats storage */
+    static final String COUCHDB_URL = System.getenv('COUCHDB_URL') ?: 'http://localhost:5994'
+
+    /** CouchDB database name */
+    static final String COUCHDB_DATABASE = 'zuul-consul'
+
+    /** CouchDB credentials */
+    static final String COUCHDB_USER = System.getenv('COUCHDB_USER') ?: 'admin'
+    static final String COUCHDB_PASSWORD = System.getenv('COUCHDB_PASSWORD') ?: 'password'
+
     /** Default environment for routing */
     static final String DEFAULT_ENVIRONMENT = System.getenv('ZUUL_DEFAULT_ENVIRONMENT') ?: 'dev'
 

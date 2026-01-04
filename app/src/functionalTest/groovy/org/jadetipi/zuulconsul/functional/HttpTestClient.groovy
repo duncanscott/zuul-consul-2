@@ -76,6 +76,49 @@ class HttpTestClient {
     }
 
     /**
+     * Make a POST request with JSON body and return the response.
+     */
+    HttpTestResponse post(String path, String jsonBody, Map<String, String> headers = [:]) {
+        def requestBuilder = HttpRequest.newBuilder()
+            .uri(URI.create("${baseUrl}${path}"))
+            .timeout(Duration.ofMillis(FunctionalTestConfig.READ_TIMEOUT_MS))
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+
+        headers.each { k, v -> requestBuilder.header(k, v) }
+
+        def request = requestBuilder.build()
+        def response = client.send(request, HttpResponse.BodyHandlers.ofString())
+
+        return new HttpTestResponse(
+            statusCode: response.statusCode(),
+            body: response.body(),
+            headers: response.headers().map()
+        )
+    }
+
+    /**
+     * Make a DELETE request and return the response.
+     */
+    HttpTestResponse delete(String path, Map<String, String> headers = [:]) {
+        def requestBuilder = HttpRequest.newBuilder()
+            .uri(URI.create("${baseUrl}${path}"))
+            .timeout(Duration.ofMillis(FunctionalTestConfig.READ_TIMEOUT_MS))
+            .DELETE()
+
+        headers.each { k, v -> requestBuilder.header(k, v) }
+
+        def request = requestBuilder.build()
+        def response = client.send(request, HttpResponse.BodyHandlers.ofString())
+
+        return new HttpTestResponse(
+            statusCode: response.statusCode(),
+            body: response.body(),
+            headers: response.headers().map()
+        )
+    }
+
+    /**
      * Make an OPTIONS request (for CORS preflight testing).
      */
     HttpTestResponse options(String path, Map<String, String> headers = [:]) {

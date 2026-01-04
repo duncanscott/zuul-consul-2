@@ -84,6 +84,29 @@ A ready-to-use Docker Compose environment lives in `docker/docker-compose.yml`. 
 
 The script boots Consul plus the sample services, waits for health checks, exports the standard `ZUUL_*` variables, launches `:app:run`, executes `:app:functionalTest`, and performs cleanup.
 
+### Running with CouchDB Stats Logging
+
+To test the CouchDB request stats feature, use the `--couchdb` flag:
+
+```bash
+./functional-tests.sh --couchdb
+```
+
+This will:
+- Start CouchDB alongside Consul and the sample services
+- Configure the gateway with `ZUUL_COUCHDB_ENABLED=true` and related environment variables
+- Enable request body buffering (`ZUUL_BUFFER_REQUEST_BODY=true`)
+- Run all functional tests including `CouchDbStatsSpec`
+
+To run only the CouchDB-specific tests:
+
+```bash
+./functional-tests.sh --couchdb
+./gradlew :app:functionalTest --tests "*CouchDbStatsSpec*"
+```
+
+### Manual Testing
+
 If you prefer to drive components manually, you can start the stack (Consul, `hello-service` for `env:dev` and `env:test`, `echo-service`, and optional nginx proxy) with:
 
 ```
@@ -98,6 +121,8 @@ With the stack running, the functional suite can also be invoked directly:
 ./gradlew :app:functionalTest
 ```
 
+### Nginx Proxy Tests
+
 Enable nginx-specific traffic flows by starting the proxy profile and running the targeted specs:
 
 ```
@@ -106,6 +131,26 @@ NGINX_TESTS=true ./gradlew :app:functionalTest --tests "*NginxProxySpec*"
 ```
 
 Nginx listens on `http://localhost:8080` and `https://localhost:8443`, forwarding to the host's Zuul instance while applying the hardened headers and TLS handling described below.
+
+### CouchDB Tests (Manual)
+
+Start CouchDB and run the stats logging tests manually:
+
+```bash
+# Start CouchDB
+docker-compose -f docker/docker-compose.yml --profile couchdb up -d
+
+# Wait for initialization, then start gateway with CouchDB enabled
+export ZUUL_COUCHDB_ENABLED=true
+export ZUUL_COUCHDB_URL=http://localhost:5994/zuul-consul
+export ZUUL_COUCHDB_USER=admin
+export ZUUL_COUCHDB_PASSWORD=password
+export ZUUL_BUFFER_REQUEST_BODY=true
+./gradlew :app:run
+
+# In another terminal, run the CouchDB tests
+./gradlew :app:functionalTest --tests "*CouchDbStatsSpec*"
+```
 
 ---
 
