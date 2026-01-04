@@ -60,12 +60,16 @@ subprojects {
             spock         : '2.4-groovy-5.0',
             nimbusJoseJwt : '10.6',
             caffeine      : '3.2.3',
+            opentelemetryApi : '1.46.0',
         ]
     }
 
     dependencies {
         // Logging
         implementation "org.slf4j:slf4j-api:${versions.slf4j}"
+
+        // OpenTelemetry API (zero transitive deps, used for trace context integration)
+        implementation "io.opentelemetry:opentelemetry-api:${versions.opentelemetryApi}"
         runtimeOnly "ch.qos.logback:logback-classic:${versions.logback}"
         runtimeOnly "net.logstash.logback:logstash-logback-encoder:9.0"
 

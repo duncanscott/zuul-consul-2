@@ -37,7 +37,11 @@ class ConsulRoutingFilter extends HttpInboundSyncFilter {
     static final String CONSUL_ORIGINAL_URI = 'consul.originalUri'
     static final String CONSUL_START_NANO = 'consul.startNano'
 
-    // Tracing header names
+    // W3C Trace Context headers
+    static final String HEADER_TRACEPARENT = 'traceparent'
+    static final String HEADER_TRACESTATE = 'tracestate'
+
+    // Legacy tracing header names (kept for backward compatibility)
     static final String HEADER_ZUUL_CONSUL_ID = 'X-Zuul-Consul-Id'
     static final String HEADER_PARENT_ZUUL_CONSUL_ID = 'X-Parent-Zuul-Consul-Id'
     static final String HEADER_ROOT_ZUUL_CONSUL_ID = 'X-Root-Zuul-Consul-Id'
@@ -106,27 +110,52 @@ class ConsulRoutingFilter extends HttpInboundSyncFilter {
 
     /**
      * Add tracing headers for request correlation.
+     * <p>
+     * Sets W3C Trace Context headers (traceparent) for distributed tracing,
+     * plus legacy X-Zuul-Consul-* headers for backward compatibility.
      */
     private void addTracingHeaders(HttpRequestMessage request) {
-        String requestId = UUID.randomUUID().toString()
+        def context = request.getContext()
+
+        // Get trace context from RequestIdFilter
+        String traceId = context.get(RequestIdFilter.TRACE_ID) as String
+        String spanId = context.get(RequestIdFilter.SPAN_ID) as String
+        String traceFlags = context.get(RequestIdFilter.TRACE_FLAGS) as String ?: '01'
+
+        // Fallback if RequestIdFilter didn't run (shouldn't happen)
+        if (!traceId) {
+            traceId = RequestIdFilter.generateTraceId()
+            spanId = RequestIdFilter.generateSpanId()
+        }
+
+        // Set W3C traceparent header for downstream services
+        String traceparent = RequestIdFilter.buildTraceparent(traceId, spanId, traceFlags)
+        request.getHeaders().set(HEADER_TRACEPARENT, traceparent)
+
+        // Propagate tracestate if present
+        String incomingTracestate = request.getHeaders().getFirst(HEADER_TRACESTATE)
+        if (incomingTracestate) {
+            request.getHeaders().set(HEADER_TRACESTATE, incomingTracestate)
+        }
+
+        // Legacy headers for backward compatibility
+        request.getHeaders().set(HEADER_ZUUL_CONSUL_ID, traceId)
 
         // Check if this is a nested request (coming through another Zuul instance)
         String incomingId = request.getHeaders().getFirst(HEADER_ZUUL_CONSUL_ID)
         String incomingRootId = request.getHeaders().getFirst(HEADER_ROOT_ZUUL_CONSUL_ID)
 
-        request.getHeaders().set(HEADER_ZUUL_CONSUL_ID, requestId)
-
-        if (incomingId != null) {
+        if (incomingId != null && incomingId != traceId) {
             request.getHeaders().set(HEADER_PARENT_ZUUL_CONSUL_ID, incomingId)
         }
 
         if (incomingRootId != null) {
             request.getHeaders().set(HEADER_ROOT_ZUUL_CONSUL_ID, incomingRootId)
-        } else if (incomingId != null) {
-            request.getHeaders().set(HEADER_ROOT_ZUUL_CONSUL_ID, incomingId)
         } else {
-            request.getHeaders().set(HEADER_ROOT_ZUUL_CONSUL_ID, requestId)
+            request.getHeaders().set(HEADER_ROOT_ZUUL_CONSUL_ID, traceId)
         }
+
+        log.trace("Trace headers set: traceparent={}", traceparent)
     }
 
     /**

@@ -76,7 +76,9 @@ class StatsFilter extends HttpOutboundSyncFilter {
                 response.getStatus())
 
         } finally {
-            // Clear MDC
+            // Clear MDC (including trace context set by RequestIdFilter)
+            MDC.remove('trace.id')
+            MDC.remove('span.id')
             MDC.remove('service.name')
             MDC.remove('http.request.method')
             MDC.remove('http.response.status_code')

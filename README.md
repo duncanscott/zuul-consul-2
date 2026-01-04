@@ -471,15 +471,45 @@ class MyResponseFilter extends HttpOutboundSyncFilter {
 
 ---
 
-## 🔗 Tracing Headers
+## 🔗 Distributed Tracing
 
-Zuul Consul adds these headers for request tracing:
+### W3C Trace Context Support
+
+Zuul Consul supports [W3C Trace Context](https://www.w3.org/TR/trace-context/) for distributed tracing:
+
+| Header | Format | Description |
+|--------|--------|-------------|
+| `traceparent` | `00-{trace-id}-{span-id}-{flags}` | W3C standard trace propagation |
+| `tracestate` | vendor-specific | Optional vendor-specific trace data |
+
+Example: `traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-b7ad6b7169203331-01`
+
+### OpenTelemetry Integration
+
+The gateway uses a hybrid approach for trace IDs:
+
+1. **With OpenTelemetry Agent**: Uses trace ID from the agent's span context
+2. **Without Agent**: Generates W3C-compatible 32-hex-char trace IDs
+
+To enable OpenTelemetry, add the Java agent to `JAVA_OPTS`:
+
+```bash
+JAVA_OPTS='-javaagent:/path/to/opentelemetry-javaagent.jar'
+OTEL_SERVICE_NAME=zuul-consul
+OTEL_EXPORTER_OTLP_ENDPOINT=http://your-apm-server:4317
+```
+
+The `trace.id` appears in all log messages and correlates with APM traces.
+
+### Legacy Headers
+
+For backward compatibility, these headers are also set:
 
 | Header | Description |
 |--------|-------------|
-| `X-Zuul-Consul-Id` | Unique ID for this request |
-| `X-Parent-Zuul-Consul-Id` | ID of the parent request (for nested calls) |
-| `X-Root-Zuul-Consul-Id` | ID of the root request in the call chain |
+| `X-Zuul-Consul-Id` | Trace ID (same as W3C trace-id) |
+| `X-Parent-Zuul-Consul-Id` | Parent trace ID (for nested calls) |
+| `X-Root-Zuul-Consul-Id` | Root trace ID in the call chain |
 
 ---
 

@@ -119,6 +119,53 @@ services:
       - ./scripts/register-services.sh:/register-services.sh:ro
     entrypoint: ["/bin/sh", "/register-services.sh"]
 
+  # ---------------------------------------------------------------------------
+  # CouchDB - for persistent storage/caching
+  # ---------------------------------------------------------------------------
+  couchdb:
+    image: couchdb:3.3
+    container_name: zuul-consul-test-couchdb
+    environment:
+      - COUCHDB_USER=admin
+      - COUCHDB_PASSWORD=password
+    ports:
+      - "127.0.0.1:5994:5984"
+    volumes:
+      - couchdb_data:/opt/couchdb/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5984/_up"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    profiles:
+      - couchdb
+      - full
+
+  couchdb-init:
+    image: curlimages/curl:latest
+    container_name: zuul-consul-test-couchdb-init
+    depends_on:
+      couchdb:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "
+      echo 'Waiting for CouchDB to be ready...';
+      sleep 2;
+      echo 'Creating zuul-consul database...';
+      curl -X PUT http://admin:password@couchdb:5984/zuul-consul -w '\nStatus: %{http_code}\n' || true;
+      echo 'Database initialization complete';
+      "
+    restart: "no"
+    profiles:
+      - couchdb
+      - full
+
+volumes:
+  couchdb_data:
+    driver: local
+
 networks:
   default:
     name: zuul-consul-test-network
