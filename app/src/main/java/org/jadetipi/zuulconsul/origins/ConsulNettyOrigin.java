@@ -30,6 +30,7 @@ import io.netty.channel.EventLoop;
 import io.netty.util.concurrent.Promise;
 import org.jadetipi.zuulconsul.consul.ConsulServiceRegistry;
 import org.jadetipi.zuulconsul.discovery.ConsulServerResolver;
+import org.jadetipi.zuulconsul.server.EnvironmentConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -101,6 +102,21 @@ public class ConsulNettyOrigin implements NettyOrigin {
             DefaultClientConfigImpl.getClientConfigWithDefaultValues(originName.getNiwsClientName());
         niwsClientConfig.set(CommonClientConfigKey.ClientClassName, originName.getNiwsClientName());
         niwsClientConfig.loadProperties(originName.getNiwsClientName());
+
+        // Apply configuration from environment variables / application.properties
+        // This ensures our config takes precedence over Ribbon's default property resolution
+        niwsClientConfig.set(CommonClientConfigKey.ConnectTimeout, EnvironmentConfig.getConnectTimeout());
+        niwsClientConfig.set(CommonClientConfigKey.ReadTimeout, EnvironmentConfig.getReadTimeout());
+        niwsClientConfig.set(CommonClientConfigKey.MaxAutoRetries, EnvironmentConfig.getMaxAutoRetries());
+        niwsClientConfig.set(CommonClientConfigKey.MaxAutoRetriesNextServer, EnvironmentConfig.getMaxAutoRetriesNextServer());
+
+        log.debug("Client config for {}: connectTimeout={}, readTimeout={}, maxRetries={}, maxRetriesNextServer={}",
+            originName.getTarget(),
+            niwsClientConfig.get(CommonClientConfigKey.ConnectTimeout),
+            niwsClientConfig.get(CommonClientConfigKey.ReadTimeout),
+            niwsClientConfig.get(CommonClientConfigKey.MaxAutoRetries),
+            niwsClientConfig.get(CommonClientConfigKey.MaxAutoRetriesNextServer));
+
         return niwsClientConfig;
     }
 

@@ -79,9 +79,6 @@ public class ZuulConsulServer {
         log.info("Zuul Consul: starting up...");
 
         try {
-            // Initialize environment variable overrides before loading properties
-            EnvironmentConfig.init();
-
             // Load configuration
             ConfigurationManager.loadCascadedPropertiesFromResources("application");
 

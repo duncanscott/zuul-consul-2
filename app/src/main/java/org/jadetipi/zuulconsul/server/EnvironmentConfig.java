@@ -1,64 +1,56 @@
 package org.jadetipi.zuulconsul.server;
 
+import com.netflix.config.DynamicPropertyFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
-
 /**
- * Maps environment variables to system properties for Archaius configuration.
+ * Provides configuration values from environment variables with fallback to properties.
  * <p>
- * This class must be called before ConfigurationManager loads properties
- * so that environment variables take precedence over application.properties.
+ * Environment variables take precedence over application.properties values.
+ * This class provides type-safe accessors for all configurable values.
  */
 public final class EnvironmentConfig {
 
     private static final Logger log = LoggerFactory.getLogger(EnvironmentConfig.class);
 
-    /**
-     * Mapping of environment variable names to property names.
-     */
-    private static final Map<String, String> ENV_TO_PROPERTY = new LinkedHashMap<>();
-
-    static {
-        // Server configuration
-        ENV_TO_PROPERTY.put("ZUUL_SERVER_PORT", "zuul.server.port.main");
-
-        // Ribbon/connection pool settings
-        ENV_TO_PROPERTY.put("ZUUL_RIBBON_CONNECT_TIMEOUT", "zuul.ribbon.ConnectTimeout");
-        ENV_TO_PROPERTY.put("ZUUL_RIBBON_READ_TIMEOUT", "zuul.ribbon.ReadTimeout");
-        ENV_TO_PROPERTY.put("ZUUL_RIBBON_MAX_AUTO_RETRIES", "zuul.ribbon.MaxAutoRetries");
-        ENV_TO_PROPERTY.put("ZUUL_RIBBON_MAX_AUTO_RETRIES_NEXT_SERVER", "zuul.ribbon.MaxAutoRetriesNextServer");
-
-        // Consul refresh interval
-        ENV_TO_PROPERTY.put("ZUUL_CONSUL_REFRESH_INTERVAL_MINUTES", "zuul.consul.refresh.interval.minutes");
-    }
+    // Default values
+    private static final int DEFAULT_CONNECT_TIMEOUT = 2000;
+    private static final int DEFAULT_READ_TIMEOUT = 30000;
+    private static final int DEFAULT_MAX_AUTO_RETRIES = 0;
+    private static final int DEFAULT_MAX_AUTO_RETRIES_NEXT_SERVER = 1;
+    private static final int DEFAULT_REFRESH_INTERVAL_MINUTES = 5;
 
     private EnvironmentConfig() {
         // Utility class
     }
 
     /**
-     * Initialize configuration from environment variables.
-     * <p>
-     * This sets system properties from environment variables, which will then
-     * be picked up by Archaius ConfigurationManager when it loads properties.
-     * Environment variables take precedence over application.properties values.
+     * Get connection timeout in milliseconds.
      */
-    public static void init() {
-        log.debug("Initializing configuration from environment variables");
+    public static int getConnectTimeout() {
+        return getInt("ZUUL_RIBBON_CONNECT_TIMEOUT", "zuul.ribbon.ConnectTimeout", DEFAULT_CONNECT_TIMEOUT);
+    }
 
-        for (Map.Entry<String, String> entry : ENV_TO_PROPERTY.entrySet()) {
-            String envVar = entry.getKey();
-            String propertyName = entry.getValue();
+    /**
+     * Get read timeout in milliseconds.
+     */
+    public static int getReadTimeout() {
+        return getInt("ZUUL_RIBBON_READ_TIMEOUT", "zuul.ribbon.ReadTimeout", DEFAULT_READ_TIMEOUT);
+    }
 
-            String envValue = System.getenv(envVar);
-            if (envValue != null && !envValue.isEmpty()) {
-                System.setProperty(propertyName, envValue);
-                log.info("Set {} from environment variable {}", propertyName, envVar);
-            }
-        }
+    /**
+     * Get max auto retries on the same server.
+     */
+    public static int getMaxAutoRetries() {
+        return getInt("ZUUL_RIBBON_MAX_AUTO_RETRIES", "zuul.ribbon.MaxAutoRetries", DEFAULT_MAX_AUTO_RETRIES);
+    }
+
+    /**
+     * Get max auto retries on the next server.
+     */
+    public static int getMaxAutoRetriesNextServer() {
+        return getInt("ZUUL_RIBBON_MAX_AUTO_RETRIES_NEXT_SERVER", "zuul.ribbon.MaxAutoRetriesNextServer", DEFAULT_MAX_AUTO_RETRIES_NEXT_SERVER);
     }
 
     /**
@@ -67,25 +59,79 @@ public final class EnvironmentConfig {
      * @return refresh interval in milliseconds (default: 5 minutes)
      */
     public static long getRefreshIntervalMs() {
-        String envValue = System.getenv("ZUUL_CONSUL_REFRESH_INTERVAL_MINUTES");
+        int minutes = getInt("ZUUL_CONSUL_REFRESH_INTERVAL_MINUTES", "zuul.consul.refresh.interval.minutes", DEFAULT_REFRESH_INTERVAL_MINUTES);
+        return minutes * 60L * 1000L;
+    }
+
+    /**
+     * Get an integer configuration value.
+     * <p>
+     * Resolution order:
+     * 1. Environment variable (highest priority)
+     * 2. System property / Archaius property
+     * 3. Default value
+     *
+     * @param envVar       environment variable name
+     * @param propertyName property name for Archaius lookup
+     * @param defaultValue default value if not configured
+     * @return the configured value
+     */
+    public static int getInt(String envVar, String propertyName, int defaultValue) {
+        // Check environment variable first
+        String envValue = System.getenv(envVar);
         if (envValue != null && !envValue.isEmpty()) {
             try {
-                return Long.parseLong(envValue) * 60 * 1000;
+                int value = Integer.parseInt(envValue);
+                log.debug("Config {} = {} (from env {})", propertyName, value, envVar);
+                return value;
             } catch (NumberFormatException e) {
-                log.warn("Invalid ZUUL_CONSUL_REFRESH_INTERVAL_MINUTES value: {}, using default", envValue);
+                log.warn("Invalid {} value: '{}', falling back to property/default", envVar, envValue);
             }
         }
 
-        String propValue = System.getProperty("zuul.consul.refresh.interval.minutes");
-        if (propValue != null && !propValue.isEmpty()) {
-            try {
-                return Long.parseLong(propValue) * 60 * 1000;
-            } catch (NumberFormatException e) {
-                log.warn("Invalid zuul.consul.refresh.interval.minutes value: {}, using default", propValue);
+        // Fall back to Archaius property (includes system properties and application.properties)
+        try {
+            int value = DynamicPropertyFactory.getInstance()
+                .getIntProperty(propertyName, defaultValue)
+                .get();
+            if (value != defaultValue) {
+                log.debug("Config {} = {} (from property)", propertyName, value);
             }
+            return value;
+        } catch (Exception e) {
+            log.warn("Error reading property {}, using default {}", propertyName, defaultValue);
+            return defaultValue;
+        }
+    }
+
+    /**
+     * Get a string configuration value.
+     *
+     * @param envVar       environment variable name
+     * @param propertyName property name for Archaius lookup
+     * @param defaultValue default value if not configured
+     * @return the configured value
+     */
+    public static String getString(String envVar, String propertyName, String defaultValue) {
+        // Check environment variable first
+        String envValue = System.getenv(envVar);
+        if (envValue != null && !envValue.isEmpty()) {
+            log.debug("Config {} = {} (from env {})", propertyName, envValue, envVar);
+            return envValue;
         }
 
-        // Default: 5 minutes
-        return 5 * 60 * 1000;
+        // Fall back to Archaius property
+        try {
+            String value = DynamicPropertyFactory.getInstance()
+                .getStringProperty(propertyName, defaultValue)
+                .get();
+            if (value != null && !value.equals(defaultValue)) {
+                log.debug("Config {} = {} (from property)", propertyName, value);
+            }
+            return value;
+        } catch (Exception e) {
+            log.warn("Error reading property {}, using default {}", propertyName, defaultValue);
+            return defaultValue;
+        }
     }
 }
