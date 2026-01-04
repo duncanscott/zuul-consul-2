@@ -418,36 +418,54 @@ Each request creates a JSON document:
   "_id": "auto-generated",
   "timestamp": "2026-01-04T10:30:00-08:00",
   "type": "request_stats",
-  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "zuul_consul_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "zuul_consul_root_id": "4bf92f3577b34da6a3ce929d0e0e4736",
   "span_id": "b7ad6b7169203331",
-  "service": "my-service",
+  "service_name": "my-service",
   "team": "my",
-  "method": "GET",
+  "service_uri": "http://10.0.1.5:8080/api/users",
+  "service_host_name": "10.0.1.5",
+  "server_address": "10.0.1.5",
+  "service_port": 8080,
+  "server_port": 8080,
+  "service_url_path": "/api/users",
+  "http_request_method": "GET",
   "original_uri": "/env:dev/my-service/api/users",
-  "path": "/api/users",
-  "backend_uri": "http://10.0.1.5:8080/api/users",
-  "status": 200,
-  "duration_ms": 45,
+  "url_path": "/api/users",
+  "http_response_status_code": 200,
+  "milliseconds": 45,
+  "tags": { "env": "dev" },
+  "forwarded_for_ip": "192.168.1.100",
+  "client_address": "192.168.1.100",
   "error": false
 }
 ```
 
-| Field | Description |
-|-------|-------------|
-| `timestamp` | ISO8601 formatted request timestamp |
-| `type` | Always `request_stats` (useful for CouchDB views) |
-| `trace_id` | W3C trace ID for distributed tracing correlation |
-| `span_id` | W3C span ID |
-| `service` | Target service name from Consul |
-| `team` | Team prefix extracted from service name (before first `-`) |
-| `method` | HTTP method (GET, POST, etc.) |
-| `original_uri` | Original request path including tags |
-| `path` | Path sent to backend service |
-| `backend_uri` | Full URI of the selected backend instance |
-| `status` | HTTP response status code |
-| `duration_ms` | Request duration in milliseconds |
-| `error` | `true` for 4xx/5xx responses |
-| `server_error` | `true` for 5xx responses |
+| Field | OTel Equivalent | Description |
+|-------|-----------------|-------------|
+| `timestamp` | — | ISO8601 formatted request timestamp |
+| `type` | — | Always `request_stats` (useful for CouchDB views) |
+| `zuul_consul_id` | — | Request trace ID (W3C-compatible) |
+| `zuul_consul_parent_id` | — | Parent request ID (for nested calls) |
+| `zuul_consul_root_id` | — | Root request ID in call chain |
+| `span_id` | — | W3C span ID |
+| `service_name` | — | Target service name from Consul |
+| `team` | — | Team prefix extracted from service name (before first `-`) |
+| `service_uri` | — | Full URI of the selected backend instance |
+| `service_host_name` | `server_address` | Backend host |
+| `service_port` | `server_port` | Backend port |
+| `service_url_path` | — | Path portion of backend URI |
+| `http_request_method` | — | HTTP method (GET, POST, etc.) |
+| `original_uri` | — | Original request path including tags |
+| `url_path` | — | Path sent to backend service |
+| `http_response_status_code` | — | HTTP response status code |
+| `milliseconds` | — | Request duration in milliseconds |
+| `tags` | — | Map of URL tags (e.g., `{"env": "dev", "version": "v1"}`) |
+| `forwarded_for_ip` | `client_address` | Client IP from X-Forwarded-For header |
+| `error` | — | `true` for 4xx/5xx responses |
+| `server_error` | — | `true` for 5xx responses |
+
+Fields with OTel equivalents are logged under both names for compatibility with [OpenTelemetry semantic conventions](https://opentelemetry.io/docs/specs/semconv/http/http-spans/).
 
 #### Viewing Data
 
@@ -497,9 +515,11 @@ zuul-consul/
 ├── filters/                                # Groovy filters
 │   └── src/main/groovy/
 │       ├── inbound/
-│       │   └── ConsulRoutingFilter.groovy  # Request routing filter
+│       │   ├── ConsulRoutingFilter.groovy  # Request routing filter
+│       │   └── RequestIdFilter.groovy      # Trace ID assignment
 │       └── outbound/
-│           └── StatsFilter.groovy          # Response logging filter
+│           ├── StatsFilter.groovy          # Response logging filter
+│           └── CouchDbStatsFilter.groovy   # Optional CouchDB stats
 ├── docker/                                 # Test environment
 │   ├── docker-compose.yml
 │   └── nginx-proxy/                        # Reference nginx config
@@ -592,17 +612,35 @@ OTEL_SERVICE_NAME=zuul-consul
 OTEL_EXPORTER_OTLP_ENDPOINT=http://your-apm-server:4317
 ```
 
-The `trace.id` appears in all log messages and correlates with APM traces.
+The `zuul_consul_id` appears in all log messages and correlates with APM traces.
 
-### Legacy Headers
+### Legacy Headers & MDC Fields
 
-For backward compatibility, these headers are also set:
+For backward compatibility with existing log parsing, these headers and MDC fields are used:
 
-| Header | Description |
-|--------|-------------|
-| `X-Zuul-Consul-Id` | Trace ID (same as W3C trace-id) |
-| `X-Parent-Zuul-Consul-Id` | Parent trace ID (for nested calls) |
-| `X-Root-Zuul-Consul-Id` | Root trace ID in the call chain |
+| Header | MDC Field | Description |
+|--------|-----------|-------------|
+| `X-Zuul-Consul-Id` | `zuul_consul_id` | Request trace ID (W3C-compatible) |
+| `X-Parent-Zuul-Consul-Id` | `zuul_consul_parent_id` | Parent trace ID (for nested calls) |
+| `X-Root-Zuul-Consul-Id` | `zuul_consul_root_id` | Root trace ID in the call chain |
+
+Additional MDC fields for structured logging (matching original Stats.groovy):
+
+| MDC Field | OTel Equivalent | Description |
+|-----------|-----------------|-------------|
+| `http.response.status_code` | (same) | HTTP response status code |
+| `http.request.method` | (same) | HTTP method |
+| `url.path` | (same) | Request path |
+| `service.name` | (same) | Target service name |
+| `service.host.name` | `server.address` | Backend host |
+| `service.port` | `server.port` | Backend port |
+| `service.url.path` | — | Backend path |
+| `fields.team` | — | Team prefix from service name |
+| `milliseconds` | — | Request duration |
+| `tag.*` | — | Dynamic tags (e.g., `tag.env`, `tag.version`) |
+| `forwarded_for_ip` | `client.address` | Client IP from X-Forwarded-For |
+
+Fields with OTel equivalents are logged under both names for compatibility with OpenTelemetry tooling. See [OpenTelemetry HTTP Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/http/http-spans/).
 
 ---
 

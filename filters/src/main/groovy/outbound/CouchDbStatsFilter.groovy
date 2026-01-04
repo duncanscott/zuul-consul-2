@@ -51,6 +51,7 @@ class CouchDbStatsFilter extends HttpOutboundSyncFilter {
 
     // Context keys (from other filters)
     static final String CONSUL_SERVICE_NAME = 'consul.serviceName'
+    static final String CONSUL_SERVICE_TAGS = 'consul.serviceTags'
     static final String CONSUL_SERVICE_URI = 'consul.serviceUri'
     static final String CONSUL_REQUEST_PATH = 'consul.requestPath'
     static final String CONSUL_ORIGINAL_URI = 'consul.originalUri'
@@ -146,6 +147,15 @@ class CouchDbStatsFilter extends HttpOutboundSyncFilter {
             }
     }
 
+    /**
+     * Build the CouchDB document with all request stats.
+     * <p>
+     * Field naming follows the original zuul-consul Stats.groovy for consistency
+     * with existing log parsing. For future additions, consider Elastic Common
+     * Schema (ECS) conventions.
+     *
+     * @see <a href="https://www.elastic.co/guide/en/ecs/current/ecs-field-reference.html">ECS Field Reference</a>
+     */
     private Map<String, Object> buildDocument(SessionContext context, HttpResponseMessage response) {
         Map<String, Object> doc = new LinkedHashMap<>()
 
@@ -153,47 +163,98 @@ class CouchDbStatsFilter extends HttpOutboundSyncFilter {
         doc.put('timestamp', ISO_FORMATTER.format(Instant.now()))
         doc.put('type', 'request_stats')
 
-        // Trace context
+        // Trace context (using old zuul-consul field names for compatibility)
         String traceId = context.get(RequestIdFilter.TRACE_ID) as String
         String spanId = context.get(RequestIdFilter.SPAN_ID) as String
+        String parentId = context.get(RequestIdFilter.PARENT_ID) as String
+        String rootId = context.get(RequestIdFilter.ROOT_ID) as String
+
         if (traceId) {
-            doc.put('trace_id', traceId)
+            doc.put('zuul_consul_id', traceId)
         }
         if (spanId) {
             doc.put('span_id', spanId)
+        }
+        if (parentId) {
+            doc.put('zuul_consul_parent_id', parentId)
+        }
+        if (rootId) {
+            doc.put('zuul_consul_root_id', rootId)
         }
 
         // Service info
         String serviceName = context.get(CONSUL_SERVICE_NAME) as String
         if (serviceName) {
-            doc.put('service', serviceName)
-            // Extract team prefix
+            doc.put('service_name', serviceName)
+            // Extract team prefix (fields.team in MDC)
             if (serviceName.contains('-')) {
                 doc.put('team', serviceName.split('-')[0])
             }
         }
 
-        // Request info
-        def inboundRequest = response.getInboundRequest()
-        if (inboundRequest) {
-            doc.put('method', inboundRequest.getMethod() ?: 'unknown')
-            doc.put('original_uri', context.get(CONSUL_ORIGINAL_URI) as String ?: inboundRequest.getPath())
-        }
-        doc.put('path', context.get(CONSUL_REQUEST_PATH) as String ?: '/')
-
+        // Service URI components (matching old Stats.groovy field names)
         String serviceUri = context.get(CONSUL_SERVICE_URI) as String
         if (serviceUri) {
-            doc.put('backend_uri', serviceUri)
+            doc.put('service_uri', serviceUri)
+            try {
+                URI uri = new URI(serviceUri)
+                if (uri.host) {
+                    doc.put('service_host_name', uri.host)
+                    doc.put('server_address', uri.host)  // OTel semantic convention
+                }
+                if (uri.port > 0) {
+                    doc.put('service_port', uri.port)
+                    doc.put('server_port', uri.port)  // OTel semantic convention
+                }
+                if (uri.path) {
+                    doc.put('service_url_path', uri.path)
+                }
+            } catch (Exception e) {
+                // Ignore parse errors
+            }
         }
 
-        // Response info
-        doc.put('status', response.getStatus())
+        // Request info (ECS-compatible field names)
+        def inboundRequest = response.getInboundRequest()
+        if (inboundRequest) {
+            doc.put('http_request_method', inboundRequest.getMethod() ?: 'unknown')
+            doc.put('original_uri', context.get(CONSUL_ORIGINAL_URI) as String ?: inboundRequest.getPath())
+        }
+        doc.put('url_path', context.get(CONSUL_REQUEST_PATH) as String ?: '/')
 
-        // Duration
+        // Response info (ECS-compatible)
+        doc.put('http_response_status_code', response.getStatus())
+
+        // Duration (milliseconds to match old Stats.groovy)
         Long startNano = context.get(CONSUL_START_NANO) as Long
         if (startNano) {
             long durationMs = Math.max(0L, (System.nanoTime() - startNano) / 1_000_000L)
-            doc.put('duration_ms', durationMs)
+            doc.put('milliseconds', durationMs)
+        }
+
+        // Dynamic tags from URI (e.g., env:dev, version:v1)
+        List<String> tags = context.get(CONSUL_SERVICE_TAGS) as List<String>
+        if (tags) {
+            Map<String, String> tagMap = new LinkedHashMap<>()
+            tags.each { String tag ->
+                if (tag?.contains(':')) {
+                    String[] parts = tag.split(':', 2)
+                    if (parts.length == 2) {
+                        tagMap.put(parts[0], parts[1])
+                    }
+                }
+            }
+            if (!tagMap.isEmpty()) {
+                doc.put('tags', tagMap)
+            }
+        }
+
+        // X-Forwarded-For
+        String forwardedFor = inboundRequest?.getHeaders()?.getFirst('X-Forwarded-For')
+        if (forwardedFor) {
+            String clientIp = forwardedFor.split(',')[0].trim()
+            doc.put('forwarded_for_ip', clientIp)
+            doc.put('client_address', clientIp)  // OTel semantic convention
         }
 
         // Error info if applicable

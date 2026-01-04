@@ -37,15 +37,19 @@ import java.util.concurrent.ThreadLocalRandom
 @Slf4j
 class RequestIdFilter extends HttpInboundSyncFilter {
 
-    // Context keys
-    static final String TRACE_ID = 'trace.id'
+    // Context keys (using old zuul-consul naming for compatibility with log parsing)
+    static final String TRACE_ID = 'zuul_consul_id'
     static final String SPAN_ID = 'span.id'
     static final String TRACE_FLAGS = 'trace.flags'
     static final String OTEL_ACTIVE = 'otel.active'
+    static final String PARENT_ID = 'zuul_consul_parent_id'
+    static final String ROOT_ID = 'zuul_consul_root_id'
 
-    // MDC keys
-    static final String MDC_TRACE_ID = 'trace.id'
+    // MDC keys (matching old Stats.groovy for log parsing compatibility)
+    static final String MDC_TRACE_ID = 'zuul_consul_id'
     static final String MDC_SPAN_ID = 'span.id'
+    static final String MDC_PARENT_ID = 'zuul_consul_parent_id'
+    static final String MDC_ROOT_ID = 'zuul_consul_root_id'
 
     // W3C Trace Context constants
     static final String TRACEPARENT_HEADER = 'traceparent'
@@ -120,9 +124,32 @@ class RequestIdFilter extends HttpInboundSyncFilter {
         context.set(TRACE_FLAGS, traceFlags)
         context.set(OTEL_ACTIVE, otelActive)
 
-        // Add to MDC for logging (trace.id correlates with APM)
+        // Handle parent and root IDs from incoming headers (for nested requests through another Zuul)
+        String incomingId = request.getHeaders().getFirst('X-Zuul-Consul-Id')
+        String incomingRootId = request.getHeaders().getFirst('X-Root-Zuul-Consul-Id')
+
+        String parentId = null
+        String rootId = traceId  // Default root is this request's ID
+
+        if (incomingId != null && incomingId != traceId) {
+            parentId = incomingId
+        }
+        if (incomingRootId != null) {
+            rootId = incomingRootId
+        }
+
+        context.set(PARENT_ID, parentId)
+        context.set(ROOT_ID, rootId)
+
+        // Add to MDC for logging (zuul_consul_id correlates with log aggregation)
         MDC.put(MDC_TRACE_ID, traceId)
         MDC.put(MDC_SPAN_ID, spanId)
+        if (parentId) {
+            MDC.put(MDC_PARENT_ID, parentId)
+        }
+        if (rootId) {
+            MDC.put(MDC_ROOT_ID, rootId)
+        }
 
         return request
     }
