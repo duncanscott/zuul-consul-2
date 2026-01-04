@@ -84,15 +84,24 @@ if [ "$ENABLE_COUCHDB" = true ]; then
         sleep 1
     done
 
-    # Wait for database initialization
-    echo "Waiting for database initialization..."
-    sleep 5
-
-    # Verify database exists
-    if ! curl -sf http://admin:password@localhost:5994/zuul-consul > /dev/null 2>&1; then
-        echo "Creating zuul-consul database..."
-        curl -X PUT http://admin:password@localhost:5994/zuul-consul || true
-    fi
+    # Wait for database to be created (by couchdb-init container or create it ourselves)
+    echo "Waiting for zuul-consul database..."
+    for i in {1..30}; do
+        if curl -sf -u admin:password http://localhost:5994/zuul-consul > /dev/null 2>&1; then
+            echo "Database zuul-consul is ready"
+            break
+        fi
+        if [ $i -eq 15 ]; then
+            # After 15 seconds, try creating the database ourselves
+            echo "Creating zuul-consul database..."
+            curl -sf -X PUT -u admin:password http://localhost:5994/zuul-consul > /dev/null 2>&1 || true
+        fi
+        if [ $i -eq 30 ]; then
+            echo "ERROR: Failed to create zuul-consul database"
+            exit 1
+        fi
+        sleep 1
+    done
 fi
 
 # Step 2: Start the gateway in background

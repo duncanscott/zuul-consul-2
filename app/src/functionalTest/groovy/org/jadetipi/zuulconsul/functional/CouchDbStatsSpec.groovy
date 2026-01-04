@@ -55,6 +55,7 @@ class CouchDbStatsSpec extends Specification {
         println "Checking CouchDB test environment..."
         println "Gateway URL: ${FunctionalTestConfig.ZUUL_URL}"
         println "CouchDB URL: ${FunctionalTestConfig.COUCHDB_URL}"
+        println "ZUUL_COUCHDB_ENABLED: ${System.getenv('ZUUL_COUCHDB_ENABLED')}"
 
         // Check Gateway
         if (!gatewayClient.waitForAvailable('/', 5)) {
@@ -71,11 +72,21 @@ class CouchDbStatsSpec extends Specification {
         }
         println "CouchDB is available"
 
-        // Check if database exists
-        def dbResponse = couchDbClient.get("/${FunctionalTestConfig.COUCHDB_DATABASE}", ['Authorization': couchDbAuth])
-        if (!dbResponse.success) {
-            println "WARNING: Database '${FunctionalTestConfig.COUCHDB_DATABASE}' does not exist"
-            println "It should be created by the couchdb-init container"
+        // Check if database exists (with retries)
+        boolean dbExists = false
+        for (int i = 0; i < 10; i++) {
+            def dbResponse = couchDbClient.get("/${FunctionalTestConfig.COUCHDB_DATABASE}", ['Authorization': couchDbAuth])
+            if (dbResponse.success) {
+                dbExists = true
+                break
+            }
+            println "Waiting for database... (attempt ${i + 1}/10, status: ${dbResponse.statusCode})"
+            Thread.sleep(1000)
+        }
+
+        if (!dbExists) {
+            println "WARNING: Database '${FunctionalTestConfig.COUCHDB_DATABASE}' does not exist after retries"
+            println "It should be created by the couchdb-init container or functional-tests.sh"
             return false
         }
         println "Database '${FunctionalTestConfig.COUCHDB_DATABASE}' exists"
@@ -83,8 +94,10 @@ class CouchDbStatsSpec extends Specification {
         // Check if CouchDB logging is enabled on the gateway
         couchDbEnabled = System.getenv('ZUUL_COUCHDB_ENABLED')?.equalsIgnoreCase('true') ?: false
         if (!couchDbEnabled) {
-            println "WARNING: ZUUL_COUCHDB_ENABLED is not set to 'true'"
-            println "CouchDB stats logging may not be working"
+            println "NOTE: ZUUL_COUCHDB_ENABLED is not set to 'true'"
+            println "Document creation assertions will be skipped"
+        } else {
+            println "CouchDB stats logging is enabled"
         }
 
         return true

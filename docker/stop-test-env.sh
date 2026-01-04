@@ -6,6 +6,7 @@ cd "$SCRIPT_DIR"
 
 echo "Stopping Zuul Consul test environment..."
 
-docker-compose down -v
+# Stop all profiles (couchdb, nginx, full) to ensure all containers are removed
+docker-compose --profile couchdb --profile nginx --profile full down -v
 
 echo "Test environment stopped."
