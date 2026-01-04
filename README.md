@@ -13,7 +13,7 @@ Route requests to services using clear, human‑readable tags in the path:
 
 ```
 /env:dev/my-service/api/users
-/env:prod/version:v2/my-service/health
+/env:prd/version:v2/my-service/health
 /my-service/api/status          ← default tags apply
 ```
 
@@ -150,7 +150,7 @@ Backend services should be registered in Consul with appropriate tags:
 
 | Tag Prefix | Description | Example |
 |------------|-------------|---------|
-| `env:` | Environment tag | `env:dev`, `env:prod` |
+| `env:` | Environment tag | `env:dev`, `env:prd` |
 | `version:` | Version tag | `version:v1`, `version:v2` |
 | `context-root!` | Base path for the service | `context-root!/api/v1` |
 | `docs!` | Documentation URL | `docs!https://docs.example.com` |
@@ -165,6 +165,7 @@ Backend services should be registered in Consul with appropriate tags:
   "Port": 8080,
   "Tags": [
     "env:dev",
+    "version:default",
     "version:v1",
     "context-root!/api"
   ],
@@ -268,7 +269,7 @@ Add:
 ZUUL_CONSUL_AGENT_HOST=localhost
 ZUUL_CONSUL_AGENT_PORT=8500
 ZUUL_DEFAULT_ENVIRONMENT=dev
-ZUUL_REACHABLE_ENVIRONMENTS='dev:int:uat:prod'
+ZUUL_REACHABLE_ENVIRONMENTS='dev:int:uat:prd'
 ZUUL_DEFAULT_TAGS='version:default'
 ZUUL_CONSUL_TOKEN='<consul-acl-token>'
 JAVA_OPTS='-Xms512m -Xmx1024m'
@@ -488,7 +489,7 @@ Planned additions include:
 ## 📬 Contact
 
 Repository owner: **Duncan Scott**  
-Project: **Zuul Consul Gateway 2**
+Project: **Zuul Consul 2**
 
 ---
 
