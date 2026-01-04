@@ -1,0 +1,4 @@
+rootProject.name = 'zuul-consul'
+
+include 'app'
+include 'filters'

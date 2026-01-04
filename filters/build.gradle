@@ -1,0 +1,14 @@
+plugins {
+    id 'groovy'
+}
+
+dependencies {
+    // Zuul 2/3 Core for filter base classes
+    implementation "com.netflix.zuul:zuul-core:${versions.zuul}"
+
+    // Groovy
+    implementation "org.apache.groovy:groovy:${versions.groovy}"
+
+    // Jackson for JSON serialization
+    implementation "com.fasterxml.jackson.core:jackson-databind:${versions.jackson}"
+}

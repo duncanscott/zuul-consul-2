@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- Console appender with pattern layout -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Access log appender -->
+    <appender name="ACCESS" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} ACCESS - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Root logger -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+
+    <!-- Application logging -->
+    <logger name="org.jadetipi.zuulconsul" level="DEBUG"/>
+
+    <!-- Filter logging -->
+    <logger name="inbound" level="DEBUG"/>
+    <logger name="outbound" level="DEBUG"/>
+
+    <!-- Reduce noisy loggers -->
+    <logger name="com.netflix.config" level="WARN"/>
+    <logger name="com.netflix.discovery" level="WARN"/>
+    <logger name="io.netty" level="WARN"/>
+    <logger name="io.vertx" level="INFO"/>
+
+    <!-- Access logging -->
+    <logger name="ACCESS" level="INFO" additivity="false">
+        <appender-ref ref="ACCESS"/>
+    </logger>
+</configuration>

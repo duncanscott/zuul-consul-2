@@ -1,0 +1,64 @@
+/**
+ * Common utilities shared across build scripts.
+ * This script defines utility functions but has no side effects.
+ * Apply this script before others that depend on these utilities.
+ */
+
+ext {
+    /**
+     * Load environment variables from a .env file.
+     * Supports:
+     *   - Comments (lines starting with #)
+     *   - export prefix (export FOO=bar)
+     *   - Quoted values ("value" or 'value')
+     *
+     * @param envFile the .env file to load
+     * @return a Map of environment variable names to values
+     */
+    loadEnvFile = { File envFile ->
+        Map<String, String> vars = [:]
+        if (!envFile?.exists()) {
+            return vars
+        }
+        envFile.eachLine { line ->
+            String trimmed = line.trim()
+            if (!trimmed || trimmed.startsWith('#')) {
+                return
+            }
+            if (trimmed.startsWith('export ')) {
+                trimmed = trimmed.substring('export '.length()).trim()
+            }
+            int idx = trimmed.indexOf('=')
+            if (idx < 0) {
+                return
+            }
+            String key = trimmed.substring(0, idx).trim()
+            String value = trimmed.substring(idx + 1).trim()
+            if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+                value = value.substring(1, value.length() - 1)
+            }
+            vars[key] = value
+        }
+        vars
+    }
+
+    /**
+     * Get the current git commit hash.
+     * @return the commit hash, or 'unknown' if git is not available
+     */
+    getGitCommit = {
+        try {
+            return "git rev-parse --verify HEAD".execute().text.trim()
+        } catch (Exception e) {
+            return 'unknown'
+        }
+    }
+
+    /**
+     * Get the current build timestamp.
+     * @return formatted date string
+     */
+    getBuildDate = {
+        return "${new Date()}".trim()
+    }
+}

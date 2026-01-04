@@ -1,0 +1,31 @@
+
+def functionalTest = sourceSets.create('functionalTest') {
+    java.srcDir 'src/functionalTest/java'
+    groovy.srcDir 'src/functionalTest/groovy'
+    resources.srcDirs = ['src/functionalTest/resources', 'src/test/resources']
+    compileClasspath += sourceSets.main.output + sourceSets.test.output
+    runtimeClasspath += output + compileClasspath
+}
+
+configurations[functionalTest.implementationConfigurationName].extendsFrom(configurations.testImplementation)
+configurations[functionalTest.runtimeOnlyConfigurationName].extendsFrom(configurations.testRuntimeOnly)
+
+def functionalTestTask = tasks.register('functionalTest', Test) {
+    description = 'Runs functional tests against a running gateway and Docker environment.'
+    group = 'verification'
+    useJUnitPlatform()
+
+    testClassesDirs = functionalTest.output.classesDirs
+    classpath = configurations[functionalTest.runtimeClasspathConfigurationName] + functionalTest.output
+
+    shouldRunAfter(tasks.named('test'))
+
+    // force functional tests to run
+    outputs.upToDateWhen { false }
+}
+
+dependencies {
+    functionalTestImplementation project
+    // Groovy JSON parsing for functional tests
+    functionalTestImplementation 'org.apache.groovy:groovy-json:5.0.3'
+}

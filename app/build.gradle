@@ -1,0 +1,69 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+application {
+    mainClass = 'org.jadetipi.zuulconsul.server.ZuulConsulServer'
+    applicationName = 'zuul-consul'
+}
+
+// Name the distribution archives zuul-consul instead of app
+distTar {
+    archiveBaseName = 'zuul-consul'
+}
+
+distZip {
+    archiveBaseName = 'zuul-consul'
+}
+
+dependencies {
+    // Zuul 2/3 Core and Discovery
+    implementation "com.netflix.zuul:zuul-core:${versions.zuul}"
+    implementation "com.netflix.zuul:zuul-discovery:${versions.zuul}"
+
+    // Netflix Ribbon for load balancing (required by zuul-discovery)
+    implementation "com.netflix.ribbon:ribbon-loadbalancer:2.7.18"
+    implementation "com.netflix.ribbon:ribbon-eureka:2.7.18"
+
+    // Vert.x Consul Client
+    implementation "io.vertx:vertx-consul-client:${versions.vertx}"
+    implementation "io.vertx:vertx-core:${versions.vertx}"
+
+    // Guava
+    implementation "com.google.guava:guava:${versions.guava}"
+
+    // Jackson for JSON
+    implementation "com.fasterxml.jackson.core:jackson-databind:${versions.jackson}"
+
+    // JWT validation with JWKS support
+    implementation "com.nimbusds:nimbus-jose-jwt:${versions.nimbusJoseJwt}"
+
+    // Caffeine cache for high-performance service lookup caching
+    implementation "com.github.ben-manes.caffeine:caffeine:${versions.caffeine}"
+
+    // Netflix Archaius for configuration
+    implementation "com.netflix.archaius:archaius-core:0.7.7"
+
+    // Include filters module
+    implementation project(':filters')
+}
+
+jar {
+    manifest {
+        attributes(
+            'Main-Class': application.mainClass,
+            'Implementation-Title': 'Zuul Consul Gateway',
+            'Implementation-Version': project.version
+        )
+    }
+}
+
+// Create a fat JAR for deployment
+tasks.register('fatJar', Jar) {
+    archiveBaseName = 'zuul-consul'
+    archiveClassifier = 'all'
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from { configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) } }
+    with jar
+}

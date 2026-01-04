@@ -1,0 +1,131 @@
+/**
+ * Deployment tasks for zuul-consul.
+ *
+ * Deploys the application distribution to remote servers via SSH.
+ * Requires remotes.gradle to be present (provided by Jenkins configFileProvider).
+ *
+ * Usage:
+ *   ./gradlew deploy -Penv=dev
+ *   ./gradlew deployOnly -Penv=int
+ */
+
+task deploy {
+    description = "Builds and deploys the application to the environment specified by -Penv=<env>."
+    group = "Deployment"
+    dependsOn ':app:distTar'
+    doLast {
+        performDeployment()
+    }
+}
+
+task deployOnly {
+    description = "Deploys pre-built distribution to the environment specified by -Penv=<env> (skips building)."
+    group = "Deployment"
+    doLast {
+        performDeployment()
+    }
+}
+
+File resolveDistFile() {
+    File distFile
+
+    if (project.hasProperty('distFile')) {
+        distFile = file(project.property('distFile'))
+    } else {
+        // Find the distribution tar
+        def distDir = file("${rootProject.projectDir}/app/build/distributions")
+        if (distDir.exists()) {
+            def tars = distDir.listFiles({ dir, name -> name.endsWith('.tar') } as FilenameFilter)
+            if (tars && tars.length > 0) {
+                // Get the most recently modified tar
+                distFile = tars.sort { -it.lastModified() }.first()
+            }
+        }
+    }
+
+    if (!distFile || !distFile.exists()) {
+        throw new GradleException("Distribution tar not found. " +
+            "Run './gradlew :app:distTar' to build it, or specify -PdistFile=<path> to use an existing tar.")
+    }
+
+    return distFile
+}
+
+String resolveEnv() {
+    (project.findProperty('env') ?: System.getProperty('env') ?: System.getenv('ENV')) as String
+}
+
+def performDeployment() {
+    String env = resolveEnv()
+    File distFile = resolveDistFile()
+
+    if (!env) {
+        throw new GradleException("The environment (env) property must be specified. Use -Penv=<env> to set it.")
+    }
+
+    if (!project.hasProperty('remotes') || !remotes.hasProperty(env)) {
+        throw new GradleException("No remote configuration found for env: ${env}. " +
+            "Ensure remotes.gradle is present with a '${env}' remote defined.")
+    }
+
+    // Extract version from tar filename (e.g., zuul-consul-4.0.2.tar -> 4.0.2)
+    def tarName = distFile.name
+    def matcher = tarName =~ /zuul-consul-(.+)\.tar/
+    def version = matcher ? matcher[0][1] : 'unknown'
+    def extractDir = "zuul-consul-${version}"
+
+    logger.lifecycle("Deploying ${distFile.name} to ${env} environment...")
+    logger.lifecycle("  Remote: ${remotes."${env}".host}")
+    logger.lifecycle("  Version: ${version}")
+
+    ssh.run {
+        session(remotes."${env}") {
+            // Create deployment directory if needed
+            execute 'mkdir -p /opt/zuul-consul-releases'
+
+            // Upload the distribution tar
+            put from: distFile, into: '/opt/zuul-consul-releases/'
+
+            // Extract and update 'current' symlink
+            // Note: /opt/zuul-consul is a permanent symlink to /opt/zuul-consul-releases/current (created by root)
+            execute """
+                cd /opt/zuul-consul-releases
+                tar -xf ${tarName}
+                rm -f current
+                ln -sfn ${extractDir} current
+            """
+
+            // Restart the service
+            execute 'sudo systemctl restart zuul-consul || echo "Warning: Could not restart service (may not exist yet)"'
+
+            // Show status
+            execute 'sudo systemctl status zuul-consul --no-pager || true'
+
+            logger.lifecycle("Deployment to ${env} completed successfully")
+        }
+    }
+}
+
+// Task to check deployment status
+task deployStatus {
+    description = "Checks the status of zuul-consul on the specified environment."
+    group = "Deployment"
+    doLast {
+        String env = resolveEnv()
+
+        if (!env) {
+            throw new GradleException("The environment (env) property must be specified. Use -Penv=<env> to set it.")
+        }
+
+        if (!project.hasProperty('remotes') || !remotes.hasProperty(env)) {
+            throw new GradleException("No remote configuration found for env: ${env}")
+        }
+
+        ssh.run {
+            session(remotes."${env}") {
+                execute 'ls -la /opt/zuul-consul'
+                execute 'sudo systemctl status zuul-consul --no-pager || true'
+            }
+        }
+    }
+}

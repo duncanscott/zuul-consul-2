@@ -1,0 +1,124 @@
+services:
+  # ---------------------------------------------------------------------------
+  # Nginx Reverse Proxy (optional - for testing nginx configurations)
+  # ---------------------------------------------------------------------------
+  # This nginx container sits in front of zuul-consul (running on the host)
+  # and demonstrates the recommended production configuration.
+  #
+  # Start with: docker-compose up -d nginx-proxy
+  # Access via: http://localhost:8080 or https://localhost:8443
+  # ---------------------------------------------------------------------------
+  nginx-proxy:
+    image: nginx:alpine
+    container_name: zuul-consul-test-nginx
+    ports:
+      - "8080:80"      # HTTP
+      - "8443:443"     # HTTPS
+      - "8888:8080"    # Status/metrics
+    volumes:
+      - ./nginx-proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx-proxy/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx-proxy/ssl:/etc/nginx/ssl        # Read-write for auto-generating certs
+      - ./nginx-proxy/docker-entrypoint.sh:/docker-entrypoint.sh:ro
+    entrypoint: ["/docker-entrypoint.sh"]
+    command: ["nginx", "-g", "daemon off;"]
+    extra_hosts:
+      # Allow nginx to reach zuul-consul running on the host
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    profiles:
+      - nginx
+      - full
+
+  consul:
+    image: hashicorp/consul:1.22.2
+    container_name: zuul-consul-test-consul
+    ports:
+      - "8500:8500"
+      - "8600:8600/udp"
+    command: agent -dev -client=0.0.0.0 -log-level=info
+    healthcheck:
+      test: ["CMD", "consul", "members"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Backend service 1: "hello-service" with env:dev tag
+  hello-dev:
+    image: nginx:alpine
+    container_name: zuul-consul-test-hello-dev
+    ports:
+      - "127.0.0.1:18081:80"
+    volumes:
+      - ./nginx/hello-dev.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:80/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    depends_on:
+      consul:
+        condition: service_healthy
+
+  # Backend service 2: "hello-service" with env:test tag
+  hello-test:
+    image: nginx:alpine
+    container_name: zuul-consul-test-hello-test
+    ports:
+      - "127.0.0.1:18082:80"
+    volumes:
+      - ./nginx/hello-test.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:80/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    depends_on:
+      consul:
+        condition: service_healthy
+
+  # Backend service 3: "echo-service" - echoes request info
+  echo-service:
+    image: nginx:alpine
+    container_name: zuul-consul-test-echo
+    ports:
+      - "127.0.0.1:18083:80"
+    volumes:
+      - ./nginx/echo.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:80/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    depends_on:
+      consul:
+        condition: service_healthy
+
+  # Service registrar - registers all services with Consul
+  registrar:
+    image: curlimages/curl:8.5.0
+    container_name: zuul-consul-test-registrar
+    depends_on:
+      consul:
+        condition: service_healthy
+      hello-dev:
+        condition: service_healthy
+      hello-test:
+        condition: service_healthy
+      echo-service:
+        condition: service_healthy
+    volumes:
+      - ./scripts/register-services.sh:/register-services.sh:ro
+    entrypoint: ["/bin/sh", "/register-services.sh"]
+
+networks:
+  default:
+    name: zuul-consul-test-network

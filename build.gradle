@@ -1,0 +1,122 @@
+plugins {
+    id 'java'
+    id 'groovy'
+    id 'org.hidetake.ssh' version '2.11.2'
+}
+
+// Load common utilities first (makes loadEnvFile, getGitCommit, etc. available)
+apply from: "${rootProject.projectDir}/gradle/scripts/common.gradle"
+
+// Root-only scripts (git tagging, versioning)
+apply from: "${rootProject.projectDir}/gradle/scripts/tag.gradle"
+
+// Deployment script (remotes.gradle is provided by Jenkins configFileProvider)
+if (file("${rootProject.projectDir}/gradle/scripts/remotes.gradle").exists()) {
+    apply from: "${rootProject.projectDir}/gradle/scripts/remotes.gradle"
+}
+apply from: "${rootProject.projectDir}/gradle/scripts/deploy.gradle"
+
+allprojects {
+    // group and version are defined in gradle.properties
+}
+
+subprojects {
+    apply plugin: 'java'
+    apply plugin: 'groovy'
+
+    // Apply shared scripts to all subprojects
+    apply from: "${rootProject.projectDir}/gradle/scripts/repositories.gradle"
+
+    // Apply integration test setup only to projects that have integration tests
+    if (file("${projectDir}/src/integrationTest").exists()) {
+        apply from: "${rootProject.projectDir}/gradle/scripts/integration.gradle"
+    }
+
+    // Apply functional test setup only to projects that have functional tests
+    if (file("${projectDir}/src/functionalTest").exists()) {
+        apply from: "${rootProject.projectDir}/gradle/scripts/functional.gradle"
+    }
+
+    java {
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(21)
+        }
+    }
+
+    ext {
+        versions = [
+            zuul          : '3.0.8',
+            vertx         : '4.5.11',
+            slf4j         : '2.0.16',
+            logback       : '1.5.12',
+            groovy        : '5.0.3',
+            guava         : '33.3.0-jre',
+            jackson       : '2.18.2',
+            jupiterApi    : '5.11.3',
+            mockito       : '5.14.2',
+            assertj       : '3.26.3',
+            spock         : '2.4-groovy-5.0',
+            nimbusJoseJwt : '9.47',
+            caffeine      : '3.1.8',
+        ]
+    }
+
+    dependencies {
+        // Logging
+        implementation "org.slf4j:slf4j-api:${versions.slf4j}"
+        runtimeOnly "ch.qos.logback:logback-classic:${versions.logback}"
+
+        // Testing - Spock Framework
+        testImplementation "org.spockframework:spock-core:${versions.spock}"
+        testImplementation "org.junit.jupiter:junit-jupiter-api:${versions.jupiterApi}"
+        testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:${versions.jupiterApi}"
+        testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+        testImplementation "org.mockito:mockito-core:${versions.mockito}"
+        testImplementation "org.assertj:assertj-core:${versions.assertj}"
+    }
+
+    // Jar configuration
+    jar {
+        archiveBaseName = project.name
+    }
+
+    // Resource processing with property expansion
+    processResources {
+        doFirst {
+            project.ext.gitCommit = rootProject.ext.getGitCommit()
+            project.ext.buildDate = rootProject.ext.getBuildDate()
+        }
+        filesMatching("**/app.properties") {
+            // Use root project name and version for app.properties
+            expand(project.properties + [name: rootProject.name])
+        }
+        filesMatching("**/config.yml") { expand project.properties }
+        filesMatching("**/service.properties") { expand project.properties }
+        filesMatching("**/application.yml") { expand project.properties }
+    }
+
+    compileJava.inputs.files(processResources)
+
+    // Apply Groovy compilation dependency if Groovy plugin is applied
+    plugins.withId('groovy') {
+        compileGroovy.inputs.files(processResources)
+    }
+
+    // Load local .env file and apply to test tasks
+    def localEnv = rootProject.ext.loadEnvFile(file('.env'))
+
+    tasks.withType(Test).configureEach { task ->
+        localEnv.each { k, v ->
+            task.environment k, v
+        }
+    }
+
+    test {
+        useJUnitPlatform()
+        testLogging {
+            showStandardStreams = true
+        }
+    }
+}

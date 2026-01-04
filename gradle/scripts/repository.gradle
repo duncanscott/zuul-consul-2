@@ -1,0 +1,75 @@
+repositories {
+    maven {
+        String artifactoryUrl = System.getenv('ARTIFACTORY_URL')
+        if (artifactoryUrl) {
+            url = artifactoryUrl
+        } else {
+            throw new GradleException("ARTIFACTORY_URL environment variable not set")
+        }
+
+        credentials {
+            String artifactoryUser = System.getenv('ARTIFACTORY_USER')
+            String artifactoryPassword = System.getenv('ARTIFACTORY_PASSWORD')
+
+            if (artifactoryUser && artifactoryPassword) {
+                username = artifactoryUser
+                password = artifactoryPassword
+            } else {
+                throw new GradleException("ARTIFACTORY_USER or ARTIFACTORY_PASSWORD environment variable not set")
+            }
+        }
+    }
+}
+
+processResources {
+    doFirst() {
+        project.ext.gitCommit = "git rev-parse --verify HEAD".execute().text.trim()
+        project.ext.buildDate = "${new Date()}".trim()
+    }
+    filesMatching("**/service.properties") { FileCopyDetails fileCopyDetails ->
+        expand project.properties
+    }
+    filesMatching("**/application.yml") { FileCopyDetails fileCopyDetails ->
+        expand project.properties
+    }
+}
+compileJava.inputs.files(processResources)
+compileGroovy.inputs.files(processResources)
+
+
+static Map<String, String> loadEnvFile(File envFile) {
+    Map<String, String> vars = [:]
+    if (!envFile?.exists()) {
+        return vars
+    }
+    envFile.eachLine { line ->
+        String trimmed = line.trim()
+        if (!trimmed || trimmed.startsWith('#')) {
+            return
+        }
+        if (trimmed.startsWith('export ')) {
+            trimmed = trimmed.substring('export '.length()).trim()
+        }
+        int idx = trimmed.indexOf('=')
+        if (idx < 0) {
+            return
+        }
+        String key = trimmed.substring(0, idx).trim()
+        String value = trimmed.substring(idx + 1).trim()
+        if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+            value = value.substring(1, value.length() - 1)
+        }
+        vars[key] = value
+    }
+    vars
+}
+
+def localEnv = loadEnvFile(file('.env'))
+
+def applyLocalEnv = { task ->
+    localEnv.each { k, v ->
+        task.environment k, v
+    }
+}
+
+tasks.withType(Test).configureEach(applyLocalEnv)

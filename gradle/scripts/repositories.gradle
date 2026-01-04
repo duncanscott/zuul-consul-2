@@ -1,0 +1,35 @@
+/**
+ * Repository configuration for dependency resolution.
+ *
+ * Configures:
+ *   - Maven Central (always available)
+ *   - Artifactory (if ARTIFACTORY_URL environment variable is set)
+ *
+ * Environment variables for Artifactory:
+ *   - ARTIFACTORY_URL: The Artifactory repository URL
+ *   - ARTIFACTORY_USER: Username for authentication
+ *   - ARTIFACTORY_PASSWORD: Password for authentication
+ */
+
+repositories {
+    mavenCentral()
+
+    // Artifactory repository (optional - only if configured)
+    String artifactoryUrl = System.getenv('ARTIFACTORY_URL')
+    if (artifactoryUrl) {
+        maven {
+            url = artifactoryUrl
+
+            String artifactoryUser = System.getenv('ARTIFACTORY_USER')
+            String artifactoryPassword = System.getenv('ARTIFACTORY_PASSWORD')
+
+            if (artifactoryUser && artifactoryPassword) {
+                credentials {
+                    username = artifactoryUser
+                    password = artifactoryPassword
+                }
+            }
+        }
+        logger.info("Artifactory repository configured: ${artifactoryUrl}")
+    }
+}

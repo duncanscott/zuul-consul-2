@@ -1,0 +1,228 @@
+String gitBranch = ''
+
+tasks.register('getGitBranch') {
+    group = 'Version Control'
+    description = 'Get the currently checked out Git branch'
+
+    doLast {
+        def executeGitCommand = { String command ->
+            def process = command.execute()
+            process.waitFor()
+            if (process.exitValue() != 0) {
+                throw new GradleException("Git command [$command] failed with exit code [${process.exitValue()}]: ${process.err.text.trim()}")
+            }
+            return process.text.trim()
+        }
+        gitBranch = executeGitCommand('git rev-parse --abbrev-ref HEAD')
+
+        if (gitBranch == 'HEAD') {
+            println "Warning: Currently in detached HEAD state.  No current Git branch."
+        } else {
+            println "Current Git branch: ${gitBranch}"
+        }
+    }
+}
+
+tasks.register('updateVersion') {
+    group = 'Version Control'
+    description = 'Update the version in gradle.properties'
+
+    notCompatibleWithConfigurationCache("This task modifies project.version at runtime")
+
+    doLast {
+        File propertiesFile = new File(rootDir, 'gradle.properties')
+        Properties properties = new Properties()
+        propertiesFile.withInputStream { stream ->
+            properties.load(stream)
+        }
+
+        // Update group, name, and version first
+        Map<String, String> groupNameVersion = [:]
+        groupNameVersion['group'] = properties.getProperty('group')
+        groupNameVersion['name'] = properties.getProperty('name')
+        groupNameVersion['version'] = project.version
+
+        // Sort the remaining properties alphabetically
+        def sortedProperties = properties.findAll { key, value ->
+            key != 'group' && key != 'name' && key != 'version'
+        }.sort { a, b -> a.key <=> b.key }
+
+        // Write the updated and reordered properties back to the file
+        propertiesFile.withWriter { writer ->
+            writer.write("group=${groupNameVersion['group']}\n")
+            writer.write("name=${groupNameVersion['name']}\n")
+            writer.write("version=${groupNameVersion['version']}\n")
+            writer.write("\n") // Empty line
+
+            sortedProperties.each { key, value ->
+                writer.write("${key}=${value}\n")
+            }
+        }
+
+        println "Version updated to [${project.version}] in gradle.properties."
+    }
+}
+
+tasks.register('checkLocalTag') {
+    group = 'Version Control'
+    description = 'Check if a Git tag exists locally and increment the version until it finds a non-existing tag'
+
+    notCompatibleWithConfigurationCache("This task modifies project.version at runtime")
+
+    doLast {
+        println "Checking local tags..."
+
+        def executeGitCommand = { String command ->
+            def process = command.execute()
+            process.waitFor()
+            if (process.exitValue() != 0) {
+                throw new GradleException("Git command [$command] failed with exit code [${process.exitValue()}]: ${process.err.text.trim()}")
+            }
+            return process.text.trim()
+        }
+
+String currentVersion = project.version.toString()
+        List<String> versionNumbers = currentVersion.split('\\.').toList()
+        String leastSignificantVersion = versionNumbers.last()
+        while (true) {
+            String tagName = versionNumbers.join('.')
+            println "Checking if tag [${tagName}] exists locally..."
+
+            String gitOutput = executeGitCommand("git tag --list ${tagName}")
+
+            if (gitOutput) {
+                println "Tag [${tagName}] exists locally, incrementing version..."
+                if (leastSignificantVersion.isInteger()) {
+                    versionNumbers[-1] = "${leastSignificantVersion.toInteger() + 1}"
+                } else {
+                    throw new GradleException("Cannot increment non-integer version number in tag [${tagName}].")
+                }
+                leastSignificantVersion = versionNumbers.last()
+            } else {
+                println "Tag [${tagName}] does not exist locally."
+                project.version = tagName
+                break
+            }
+        }
+
+        println "Project version set to [${project.version}]."
+    }
+}
+
+tasks.register('checkRemoteTag') {
+    group = 'Version Control'
+    description = 'Check if a Git tag exists remotely and increment the version until it finds a non-existing tag'
+
+    notCompatibleWithConfigurationCache("This task modifies project.version at runtime")
+
+    doLast {
+        println "Checking remote tags..."
+
+        def executeGitCommand = { String command ->
+            def process = command.execute()
+            process.waitFor()
+            if (process.exitValue() != 0) {
+                throw new GradleException("Git command [$command] failed with exit code [${process.exitValue()}]: ${process.err.text.trim()}")
+            }
+            return process.text.trim()
+        }
+
+String currentVersion = project.version.toString()
+        List<String> versionNumbers = currentVersion.split('\\.').toList()
+        String leastSignificantVersion = versionNumbers.last()
+
+        String remotesOutput = executeGitCommand('git remote')
+
+        remotesOutput.readLines().each { String remote ->
+            while (true) {
+                String tagName = versionNumbers.join('.')
+                println "Checking if tag [${tagName}] exists on the remote ${remote}..."
+
+                String checkTagOutput = executeGitCommand("git ls-remote --tags ${remote} refs/tags/${tagName}")
+
+                if (checkTagOutput) {
+                    println "Tag [${tagName}] exists on the remote, incrementing version..."
+                    if (leastSignificantVersion.isInteger()) {
+                        versionNumbers[-1] = "${leastSignificantVersion.toInteger() + 1}"
+                    } else {
+                        throw new GradleException("Cannot increment non-integer version number in tag [${tagName}].")
+                    }
+                    leastSignificantVersion = versionNumbers.last()
+                } else {
+                    println "Tag [${tagName}] does not exist on the remote."
+                    project.version = tagName
+                    break
+                }
+            }
+        }
+
+        println "Project version set to [${project.version}]."
+    }
+}
+
+tasks.register('tag') {
+    group = 'Version Control'
+    description = 'Tag project for deployment via Jenkins'
+
+    notCompatibleWithConfigurationCache("This task uses project.version at runtime")
+
+    doLast {
+        println "Creating tag with version: ${project.version}"
+
+        def executeGitCommand = { String command ->
+            def process = command.execute()
+            process.waitFor()
+            if (process.exitValue() != 0) {
+                throw new GradleException("Git command [$command] failed with exit code [${process.exitValue()}]: ${process.err.text.trim()}")
+            }
+            return process.text.trim()
+        }
+
+        executeGitCommand('git add -A')
+
+        try {
+            String commitMsg = "version ${project.version}"
+            String[] commitCmd = ['git', 'commit', '-a', '-m', commitMsg]
+            Process commitProcess = Runtime.getRuntime().exec(commitCmd)
+            commitProcess.waitFor()
+            if (commitProcess.exitValue() != 0) {
+                println "Warning: Commit may have failed (nothing to commit?)"
+            }
+        } catch (Exception e) {
+            println "Warning: Commit failed: ${e.message}"
+        }
+
+        String tagMsg = "version ${project.version}"
+        String[] tagCmd = ['git', 'tag', '-a', project.version.toString(), '-m', tagMsg]
+        Process tagProcess = Runtime.getRuntime().exec(tagCmd)
+        tagProcess.waitFor()
+        if (tagProcess.exitValue() != 0) {
+            String error = tagProcess.errorStream.text.trim()
+            throw new GradleException("Git tag command failed with exit code [${tagProcess.exitValue()}]: ${error}")
+        }
+
+        String remotesOutput = executeGitCommand('git remote')
+
+        remotesOutput.readLines().each { String remote ->
+            if (gitBranch && gitBranch != 'HEAD') {
+                String[] pushBranchCmd = ['git', 'push', remote, gitBranch]
+                Runtime.getRuntime().exec(pushBranchCmd).waitFor()
+            }
+            String[] pushTagsCmd = ['git', 'push', remote, '--tags']
+            Runtime.getRuntime().exec(pushTagsCmd).waitFor()
+            println "Tag [${project.version}] created and pushed to remote [${remote}]."
+        }
+    }
+}
+
+tasks.named('updateVersion').configure {
+    mustRunAfter 'checkRemoteTag'
+}
+
+tasks.named('checkRemoteTag').configure {
+    dependsOn 'checkLocalTag'
+}
+
+tasks.named('tag').configure {
+    dependsOn 'checkRemoteTag', 'updateVersion', 'getGitBranch'
+}

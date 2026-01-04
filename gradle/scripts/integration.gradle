@@ -1,0 +1,38 @@
+
+def integrationTest = sourceSets.create('integrationTest') {
+    java.srcDir 'src/integrationTest/java'
+    groovy.srcDir 'src/integrationTest/groovy'
+    resources.srcDirs = ['src/integrationTest/resources', 'src/test/resources']
+    compileClasspath += sourceSets.main.output + sourceSets.test.output
+    runtimeClasspath += output + compileClasspath
+}
+
+configurations[integrationTest.implementationConfigurationName].extendsFrom(configurations.testImplementation)
+configurations[integrationTest.runtimeOnlyConfigurationName].extendsFrom(configurations.testRuntimeOnly)
+
+def integrationTestTask = tasks.register('integrationTest', Test) {
+    description = 'Runs integration tests.'
+    group = 'verification'
+    useJUnitPlatform()
+
+    testClassesDirs = integrationTest.output.classesDirs
+    classpath = configurations[integrationTest.runtimeClasspathConfigurationName] + integrationTest.output
+
+    shouldRunAfter(tasks.named('test'))
+
+    // force integration tests to run
+    outputs.upToDateWhen { false }
+}
+
+tasks.named('check') {
+    dependsOn(integrationTestTask)
+}
+
+dependencies {
+    integrationTestImplementation project
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
