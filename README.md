@@ -109,6 +109,74 @@ Nginx listens on `http://localhost:8080` and `https://localhost:8443`, forwardin
 
 ---
 
+## ⚙️ Configuration
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ZUUL_CONSUL_AGENT_HOST` | Consul agent hostname | `localhost` |
+| `ZUUL_CONSUL_AGENT_PORT` | Consul agent port | `8500` |
+| `ZUUL_CONSUL_DATACENTER` | Consul datacenter | (none) |
+| `ZUUL_CONSUL_TOKEN` | Consul ACL token | (none) |
+| `ZUUL_DEFAULT_ENVIRONMENT` | Default environment tag applied when URL omits `env:` | `dev` |
+| `ZUUL_REACHABLE_ENVIRONMENTS` | Colon-separated list of allowed environments | (all) |
+| `ZUUL_DEFAULT_TAGS` | Slash-separated default tags (e.g., `version:default`) | (none) |
+| `ZUUL_SERVER_PORT` | Server listening port | `9091` (HTTP) or `8443` (HTTPS) |
+| `ZUUL_SSL_CERT_PATH` | Path to SSL certificate (PEM format); enables HTTPS | (none) |
+| `ZUUL_SSL_KEY_PATH` | Path to SSL private key (PEM format) | (none) |
+| `ZUUL_JWKS_URL` | JWKS endpoint URL for JWT validation | (none) |
+| `JAVA_OPTS` | JVM options (e.g., `-Xms512m -Xmx1024m`) | (none) |
+
+When `ZUUL_DEFAULT_ENVIRONMENT` is set, the gateway injects `env:<value>` into the default tag list and adds `<value>` to the reachable-environment list.
+
+### Application Properties
+
+Configuration can also be set in `app/src/main/resources/application.properties`:
+
+```properties
+zuul.server.port.main=9091
+zuul.ribbon.ConnectTimeout=2000
+zuul.ribbon.ReadTimeout=30000
+zuul.ribbon.MaxAutoRetries=0
+zuul.ribbon.MaxAutoRetriesNextServer=1
+```
+
+---
+
+## 🏷 Consul Service Registration
+
+Backend services should be registered in Consul with appropriate tags:
+
+| Tag Prefix | Description | Example |
+|------------|-------------|---------|
+| `env:` | Environment tag | `env:dev`, `env:prod` |
+| `version:` | Version tag | `version:v1`, `version:v2` |
+| `context-root!` | Base path for the service | `context-root!/api/v1` |
+| `docs!` | Documentation URL | `docs!https://docs.example.com` |
+
+### Example Registration
+
+```json
+{
+  "Name": "my-service",
+  "ID": "my-service-1",
+  "Address": "10.0.1.5",
+  "Port": 8080,
+  "Tags": [
+    "env:dev",
+    "version:v1",
+    "context-root!/api"
+  ],
+  "Check": {
+    "HTTP": "http://10.0.1.5:8080/health",
+    "Interval": "10s"
+  }
+}
+```
+
+---
+
 ## 🧠 Design Goals
 
 ### Keep It Simple
@@ -160,6 +228,105 @@ and reach the gateway via `http://localhost:8080`, `https://localhost:8443`, or 
 
 ---
 
+## 📦 Deployment
+
+### Running the JAR
+
+```bash
+./gradlew :app:fatJar
+java -jar app/build/libs/app-*-all.jar
+```
+
+### Server Setup (One-Time)
+
+**1. Create directory structure:**
+
+```bash
+mkdir -p /opt/zuul-consul-releases
+chown zuul:zuul /opt/zuul-consul-releases
+chmod 770 /opt/zuul-consul-releases
+ln -sfn /opt/zuul-consul-releases/current /opt/zuul-consul
+```
+
+**2. Configure sudoers:**
+
+```bash
+visudo -f /etc/sudoers.d/zuul-consul
+```
+
+Add:
+```
+%zuul ALL=(ALL) NOPASSWD: /bin/systemctl restart zuul-consul
+%zuul ALL=(ALL) NOPASSWD: /bin/systemctl start zuul-consul
+%zuul ALL=(ALL) NOPASSWD: /bin/systemctl stop zuul-consul
+%zuul ALL=(ALL) NOPASSWD: /bin/systemctl status zuul-consul
+```
+
+**3. Create environment file** `/etc/zuul-consul/zuul-env.sh`:
+
+```bash
+ZUUL_CONSUL_AGENT_HOST=localhost
+ZUUL_CONSUL_AGENT_PORT=8500
+ZUUL_DEFAULT_ENVIRONMENT=dev
+ZUUL_REACHABLE_ENVIRONMENTS='dev:int:uat:prod'
+ZUUL_DEFAULT_TAGS='version:default'
+ZUUL_CONSUL_TOKEN='<consul-acl-token>'
+JAVA_OPTS='-Xms512m -Xmx1024m'
+```
+
+**4. Create systemd service** `/etc/systemd/system/zuul-consul.service`:
+
+```ini
+[Unit]
+Description=Zuul Consul Gateway
+After=network.target
+
+[Service]
+Type=simple
+User=zuul
+Group=zuul
+EnvironmentFile=/etc/zuul-consul/zuul-env.sh
+ExecStart=/opt/zuul-consul/bin/zuul-consul
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+systemctl daemon-reload
+systemctl enable zuul-consul
+```
+
+### Docker
+
+```dockerfile
+FROM eclipse-temurin:21-jre
+WORKDIR /app
+COPY app/build/libs/app-*-all.jar /app/zuul-consul.jar
+ENV ZUUL_CONSUL_AGENT_HOST=localhost
+ENV ZUUL_CONSUL_AGENT_PORT=8500
+ENV ZUUL_DEFAULT_ENVIRONMENT=dev
+EXPOSE 9091
+ENTRYPOINT ["java", "-jar", "/app/zuul-consul.jar"]
+```
+
+```bash
+./gradlew :app:fatJar
+docker build -t zuul-consul .
+docker run -p 9091:9091 -e ZUUL_CONSUL_AGENT_HOST=consul.example.com zuul-consul
+```
+
+### Jenkins Deployment
+
+1. Update version in `gradle.properties`
+2. Commit and push
+3. Run `./tag.sh` to create and push the git tag
+4. Jenkins pipeline builds, tests, and deploys (dev → int → prd)
+
+---
+
 ## 🏥 Health & Failure Behavior
 
 | Scenario | Expected Behavior |
@@ -168,6 +335,8 @@ and reach the gateway via `http://localhost:8080`, `https://localhost:8443`, or 
 | Service unhealthy | Automatically removed from rotation |
 | No matching service or tags | Request rejected cleanly |
 | Long‑latency backend | Timed‑out and surfaced appropriately |
+
+The root path `/` returns service registry information when no service name is specified.
 
 ---
 
@@ -191,6 +360,99 @@ Native logging + metric export guidance is coming soon.
 This project reflects real‑world operational experience at the **DOE Joint Genome Institute**, but this repository is a **fresh, clean rewrite** intended for wider use.
 
 It intentionally avoids complexity — preferring predictable, transparent routing behavior over feature bloat.
+
+---
+
+## 🗂 Project Structure
+
+```
+zuul-consul/
+├── app/                                    # Main application (Java)
+│   └── src/main/java/org/jadetipi/zuulconsul/
+│       ├── consul/                         # Consul client integration
+│       ├── discovery/                      # Zuul discovery integration
+│       ├── origins/                        # Origin management
+│       ├── server/                         # Server startup
+│       └── service/                        # URI parsing utilities
+├── filters/                                # Groovy filters
+│   └── src/main/groovy/
+│       ├── inbound/
+│       │   └── ConsulRoutingFilter.groovy  # Request routing filter
+│       └── outbound/
+│           └── StatsFilter.groovy          # Response logging filter
+├── docker/                                 # Test environment
+│   ├── docker-compose.yml
+│   └── nginx-proxy/                        # Reference nginx config
+├── build.gradle
+├── settings.gradle
+└── gradle.properties
+```
+
+---
+
+## 🔧 Adding Custom Filters
+
+Create Groovy filters in `filters/src/main/groovy/`:
+
+### Inbound Filter Example
+
+```groovy
+package inbound
+
+import com.netflix.zuul.filters.http.HttpInboundSyncFilter
+import com.netflix.zuul.message.http.HttpRequestMessage
+
+class MyCustomFilter extends HttpInboundSyncFilter {
+
+    @Override
+    int filterOrder() { return 50 }  // Before ConsulRoutingFilter (order 100)
+
+    @Override
+    boolean shouldFilter(HttpRequestMessage request) { return true }
+
+    @Override
+    HttpRequestMessage apply(HttpRequestMessage request) {
+        request.getHeaders().set("X-Custom-Header", "value")
+        return request
+    }
+}
+```
+
+### Outbound Filter Example
+
+```groovy
+package outbound
+
+import com.netflix.zuul.filters.http.HttpOutboundSyncFilter
+import com.netflix.zuul.message.http.HttpResponseMessage
+
+class MyResponseFilter extends HttpOutboundSyncFilter {
+
+    @Override
+    int filterOrder() { return 100 }
+
+    @Override
+    boolean shouldFilter(HttpResponseMessage response) { return true }
+
+    @Override
+    HttpResponseMessage apply(HttpResponseMessage response) {
+        response.getHeaders().set("Access-Control-Allow-Origin", "*")
+        return response
+    }
+}
+```
+
+---
+
+## 🔗 Tracing Headers
+
+Zuul Consul adds these headers for request tracing:
+
+| Header | Description |
+|--------|-------------|
+| `X-Zuul-Consul-Id` | Unique ID for this request |
+| `X-Parent-Zuul-Consul-Id` | ID of the parent request (for nested calls) |
+| `X-Root-Zuul-Consul-Id` | ID of the root request in the call chain |
 
 ---
 
@@ -219,7 +481,6 @@ Planned additions include:
 
 - Health endpoint specification
 - Prometheus metrics support
-- Example deployment configurations
 - More documentation & diagrams
 
 ---
