@@ -5,6 +5,7 @@ import com.netflix.zuul.context.SessionContext
 import com.netflix.zuul.filters.http.HttpOutboundSyncFilter
 import com.netflix.zuul.message.http.HttpResponseMessage
 import groovy.util.logging.Slf4j
+import inbound.BodyBufferFilter
 import inbound.RequestIdFilter
 
 import java.net.URI
@@ -265,6 +266,61 @@ class CouchDbStatsFilter extends HttpOutboundSyncFilter {
             }
         }
 
+        // Request body (if buffered by BodyBufferFilter and is JSON)
+        // ECS field: http.request.body.content
+        String requestBody = context.get(BodyBufferFilter.REQUEST_BODY_KEY) as String
+        if (requestBody) {
+            // Validate it's actually JSON before storing
+            if (isValidJson(requestBody)) {
+                doc.put('http_request_body_content', requestBody)
+            }
+        }
+
+        // Response body (if JSON)
+        // ECS field: http.response.body.content
+        try {
+            String responseContentType = response.getHeaders()?.getFirst('Content-Type')
+            if (responseContentType?.toLowerCase()?.contains('application/json')) {
+                if (response.hasCompleteBody()) {
+                    byte[] bodyBytes = response.getBody()
+                    if (bodyBytes != null && bodyBytes.length > 0 && bodyBytes.length <= MAX_BODY_SIZE) {
+                        String responseBody = new String(bodyBytes, 'UTF-8')
+                        if (isValidJson(responseBody)) {
+                            doc.put('http_response_body_content', responseBody)
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.trace("Failed to capture response body: {}", e.message)
+        }
+
         return doc
+    }
+
+    /**
+     * Maximum body size to capture (1MB).
+     * Larger bodies are skipped to avoid memory issues.
+     */
+    private static final int MAX_BODY_SIZE = 1024 * 1024
+
+    /**
+     * Check if a string is valid JSON.
+     */
+    private static boolean isValidJson(String str) {
+        if (str == null || str.isEmpty()) {
+            return false
+        }
+        String trimmed = str.trim()
+        // Quick check: must start with { or [
+        if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+            return false
+        }
+        try {
+            objectMapper.readTree(str)
+            return true
+        } catch (Exception e) {
+            return false
+        }
     }
 }

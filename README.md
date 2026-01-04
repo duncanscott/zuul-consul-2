@@ -399,6 +399,10 @@ Enable CouchDB stats logging with these environment variables:
 | `ZUUL_COUCHDB_URL` | CouchDB database URL | `http://localhost:5994/zuul-consul` |
 | `ZUUL_COUCHDB_USER` | CouchDB username | `admin` |
 | `ZUUL_COUCHDB_PASSWORD` | CouchDB password | `password` |
+| `ZUUL_BUFFER_REQUEST_BODY` | Enable request body capture | `true` |
+
+**Note:** Request body capture is disabled by default. Enable it to log JSON request bodies.
+Response bodies with `Content-Type: application/json` are captured automatically when CouchDB logging is enabled.
 
 Example:
 
@@ -429,7 +433,7 @@ Each request creates a JSON document:
   "service_port": 8080,
   "server_port": 8080,
   "service_url_path": "/api/users",
-  "http_request_method": "GET",
+  "http_request_method": "POST",
   "original_uri": "/env:dev/my-service/api/users",
   "url_path": "/api/users",
   "http_response_status_code": 200,
@@ -437,6 +441,8 @@ Each request creates a JSON document:
   "tags": { "env": "dev" },
   "forwarded_for_ip": "192.168.1.100",
   "client_address": "192.168.1.100",
+  "http_request_body_content": "{\"name\": \"John\", \"email\": \"john@example.com\"}",
+  "http_response_body_content": "{\"id\": 123, \"status\": \"created\"}",
   "error": false
 }
 ```
@@ -462,10 +468,18 @@ Each request creates a JSON document:
 | `milliseconds` | — | Request duration in milliseconds |
 | `tags` | — | Map of URL tags (e.g., `{"env": "dev", "version": "v1"}`) |
 | `forwarded_for_ip` | `client_address` | Client IP from X-Forwarded-For header |
+| `http_request_body_content` | — | JSON request body (requires `ZUUL_BUFFER_REQUEST_BODY=true`) |
+| `http_response_body_content` | — | JSON response body (when `Content-Type: application/json`) |
 | `error` | — | `true` for 4xx/5xx responses |
 | `server_error` | — | `true` for 5xx responses |
 
 Fields with OTel equivalents are logged under both names for compatibility with [OpenTelemetry semantic conventions](https://opentelemetry.io/docs/specs/semconv/http/http-spans/).
+
+**Body content notes:**
+- Body fields use ECS naming: `http.request.body.content` and `http.response.body.content` (with underscores for JSON keys)
+- Only JSON bodies are captured (validated by checking `Content-Type` header and parsing)
+- Bodies larger than 1MB are skipped to avoid memory issues
+- Request body capture requires explicit opt-in via `ZUUL_BUFFER_REQUEST_BODY=true`
 
 #### Viewing Data
 
@@ -515,6 +529,7 @@ zuul-consul/
 ├── filters/                                # Groovy filters
 │   └── src/main/groovy/
 │       ├── inbound/
+│       │   ├── BodyBufferFilter.groovy     # Request body buffering (optional)
 │       │   ├── ConsulRoutingFilter.groovy  # Request routing filter
 │       │   └── RequestIdFilter.groovy      # Trace ID assignment
 │       └── outbound/
