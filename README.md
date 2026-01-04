@@ -119,6 +119,7 @@ Nginx listens on `http://localhost:8080` and `https://localhost:8443`, forwardin
 | `ZUUL_CONSUL_AGENT_PORT` | Consul agent port | `8500` |
 | `ZUUL_CONSUL_DATACENTER` | Consul datacenter | (none) |
 | `ZUUL_CONSUL_TOKEN` | Consul ACL token | (none) |
+| `ZUUL_CONSUL_REFRESH_INTERVAL_MINUTES` | Fallback refresh interval for service catalog | `5` |
 | `ZUUL_DEFAULT_ENVIRONMENT` | Default environment tag applied when URL omits `env:` | `dev` |
 | `ZUUL_REACHABLE_ENVIRONMENTS` | Colon-separated list of allowed environments | (all) |
 | `ZUUL_DEFAULT_TAGS` | Slash-separated default tags (e.g., `version:default`) | (none) |
@@ -126,16 +127,21 @@ Nginx listens on `http://localhost:8080` and `https://localhost:8443`, forwardin
 | `ZUUL_SSL_CERT_PATH` | Path to SSL certificate (PEM format); enables HTTPS | (none) |
 | `ZUUL_SSL_KEY_PATH` | Path to SSL private key (PEM format) | (none) |
 | `ZUUL_JWKS_URL` | JWKS endpoint URL for JWT validation | (none) |
+| `ZUUL_RIBBON_CONNECT_TIMEOUT` | Connection timeout in milliseconds | `2000` |
+| `ZUUL_RIBBON_READ_TIMEOUT` | Read timeout in milliseconds | `30000` |
+| `ZUUL_RIBBON_MAX_AUTO_RETRIES` | Max retries on same server | `0` |
+| `ZUUL_RIBBON_MAX_AUTO_RETRIES_NEXT_SERVER` | Max retries on next server | `1` |
 | `JAVA_OPTS` | JVM options (e.g., `-Xms512m -Xmx1024m`) | (none) |
 
 When `ZUUL_DEFAULT_ENVIRONMENT` is set, the gateway injects `env:<value>` into the default tag list and adds `<value>` to the reachable-environment list.
 
 ### Application Properties
 
-Configuration can also be set in `app/src/main/resources/application.properties`:
+All environment variables above override the corresponding properties in `app/src/main/resources/application.properties`:
 
 ```properties
 zuul.server.port.main=9091
+zuul.consul.refresh.interval.minutes=5
 zuul.ribbon.ConnectTimeout=2000
 zuul.ribbon.ReadTimeout=30000
 zuul.ribbon.MaxAutoRetries=0

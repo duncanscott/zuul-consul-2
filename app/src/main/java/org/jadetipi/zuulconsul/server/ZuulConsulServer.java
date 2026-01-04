@@ -79,11 +79,15 @@ public class ZuulConsulServer {
         log.info("Zuul Consul: starting up...");
 
         try {
+            // Initialize environment variable overrides before loading properties
+            EnvironmentConfig.init();
+
             // Load configuration
             ConfigurationManager.loadCascadedPropertiesFromResources("application");
 
             // Start Consul watches for real-time service updates (with fallback refresh)
-            consulRegistry.startWatching();
+            long refreshIntervalMs = EnvironmentConfig.getRefreshIntervalMs();
+            consulRegistry.startWatching(refreshIntervalMs);
 
             // Create access log publisher
             AccessLogPublisher accessLogPublisher = new AccessLogPublisher(
