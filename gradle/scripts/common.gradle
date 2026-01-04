@@ -55,10 +55,11 @@ ext {
     }
 
     /**
-     * Get the current build timestamp.
-     * @return formatted date string
+     * Get the current build timestamp in ISO8601 format with timezone offset.
+     * @return formatted date string (e.g., 2026-01-03T14:30:00-08:00)
      */
     getBuildDate = {
-        return "${new Date()}".trim()
+        return java.time.OffsetDateTime.now().format(
+            java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME)
     }
 }
