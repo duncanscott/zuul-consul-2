@@ -53,8 +53,6 @@ This project uses Zuul as a dependency — not a fork — so you benefit from up
 
 ## 🚀 Quick Start
 
-> A full demo using Docker Compose is planned — for now, the project builds and runs via Gradle.
-
 Clone and build:
 
 ```
@@ -63,15 +61,51 @@ cd zuul-consul-2
 ./gradlew build
 ```
 
-Run:
+Run the gateway (pointing at your Consul agent or the included demo stack):
 
 ```
-./gradlew run
+export ZUUL_CONSUL_AGENT_HOST=localhost
+export ZUUL_CONSUL_AGENT_PORT=8500
+export ZUUL_DEFAULT_ENVIRONMENT=dev
+./gradlew :app:run
 ```
 
-Point the gateway at a Consul agent and start routing requests.
+See **Demo Stack & Functional Tests** below for a turnkey Consul + service lab that exercises these commands end-to-end, plus `./functional-tests.sh` which boots the stack and runs tests in one step.
 
-Configuration defaults and examples will be added shortly.
+---
+
+## 🧪 Demo Stack & Functional Tests
+
+A ready-to-use Docker Compose environment lives in `docker/docker-compose.yml`. Run it together with the gateway and functional specs via the single command:
+
+```
+./functional-tests.sh
+```
+
+The script boots Consul plus the sample services, waits for health checks, exports the standard `ZUUL_*` variables, launches `:app:run`, executes `:app:functionalTest`, and performs cleanup.
+
+If you prefer to drive components manually, you can start the stack (Consul, `hello-service` for `env:dev` and `env:test`, `echo-service`, and optional nginx proxy) with:
+
+```
+./docker/start-test-env.sh
+```
+
+Then run the gateway locally (see Quick Start) to route through the containerized services at `http://localhost:9091`, and stop everything afterwards via `./docker/stop-test-env.sh`.
+
+With the stack running, the functional suite can also be invoked directly:
+
+```
+./gradlew :app:functionalTest
+```
+
+Enable nginx-specific traffic flows by starting the proxy profile and running the targeted specs:
+
+```
+docker-compose -f docker/docker-compose.yml --profile nginx up -d
+NGINX_TESTS=true ./gradlew :app:functionalTest --tests "*NginxProxySpec*"
+```
+
+Nginx listens on `http://localhost:8080` and `https://localhost:8443`, forwarding to the host's Zuul instance while applying the hardened headers and TLS handling described below.
 
 ---
 
@@ -109,6 +143,20 @@ Recommended nginx responsibilities:
 - Strip / rewrite trusted headers
 
 Zuul focuses only on routing.
+
+---
+
+## 🧱 Example NGINX Configuration
+
+The demo stack ships with a hardened reverse proxy in `docker/nginx-proxy/`. `nginx.conf` contains the global tuning, while `conf.d/zuul-consul.conf` defines the upstream keepalive block, proxy headers, gzip, and CORS / security response headers. The entrypoint script auto-generates self-signed certificates inside `docker/nginx-proxy/ssl/` (bring your own `server.crt` / `server.key` to override them).
+
+Run the proxy alongside the services with:
+
+```
+docker-compose -f docker/docker-compose.yml --profile nginx up -d
+```
+
+and reach the gateway via `http://localhost:8080`, `https://localhost:8443`, or the status endpoint on `http://localhost:8888/health`. These same settings are exercised in `NginxProxySpec` when `NGINX_TESTS=true` during `:app:functionalTest`.
 
 ---
 
@@ -169,8 +217,6 @@ Please open an Issue or Pull Request.
 
 Planned additions include:
 
-- Docker demo stack (Gateway + Consul + sample services)
-- Example nginx config
 - Health endpoint specification
 - Prometheus metrics support
 - Example deployment configurations
