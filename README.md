@@ -347,7 +347,27 @@ The root path `/` returns service registry information when no service name is s
 
 ---
 
-## 📡 Observability (Recommended)
+## 📡 Observability
+
+### Logging
+
+The gateway logs to three destinations:
+
+| Appender | Location | Format | Purpose |
+|----------|----------|--------|---------|
+| STDOUT | Console | Pattern | Development, systemd/journald |
+| ROLLER | `~/logs/zuul-consul.log` | Pattern | Traditional file logging |
+| JSON | `~/json-logs/zuul-consul-json.log` | Logstash JSON | Log aggregation (ELK/Splunk) |
+
+File appenders use rolling policies: 10MB max size, 21 rotated files.
+
+Set the root log level via environment variable:
+
+```bash
+export ROOT_LOG_LEVEL=DEBUG  # default: INFO
+```
+
+### Recommended Practices
 
 You should configure:
 - request IDs (`X‑Request‑Id`)
@@ -358,7 +378,7 @@ You should configure:
   - upstream response code
 - metrics per service + tag
 
-Native logging + metric export guidance is coming soon.
+Prometheus metrics support is planned.
 
 ---
 
