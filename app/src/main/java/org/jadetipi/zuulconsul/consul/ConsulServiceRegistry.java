@@ -11,6 +11,8 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 /**
@@ -36,7 +38,7 @@ public class ConsulServiceRegistry {
     private static final Logger log = LoggerFactory.getLogger(ConsulServiceRegistry.class);
 
     private static final String AGENT = "_agent";
-    private static final long DEFAULT_REFRESH_INTERVAL_MS = TimeUnit.MINUTES.toMillis(5);
+    private static final long DEFAULT_REFRESH_INTERVAL_MS = TimeUnit.MINUTES.toMillis(15);
     private static final long HEALTH_WATCH_TIMEOUT_SECONDS = 55; // Consul max is 600, but keep it reasonable
 
     // Rate limiting for Consul health queries to avoid "Too Many Requests" errors
@@ -46,13 +48,13 @@ public class ConsulServiceRegistry {
     private final Vertx vertx;
     private final ConsulClient consulClient;
     private final ConsulClientOptions consulClientOptions;
-    private final ConsulServiceCache serviceCache;
+    private final AtomicReference<ConsulServiceCache> serviceCacheRef;
+    private final Set<String> reachableEnvironments;
     private final String defaultEnvironment;
     private final List<String> defaultTags;
     private final AtomicBoolean loading = new AtomicBoolean(false);
+    private final AtomicLong cacheRotationIndex = new AtomicLong(0);
 
-    // Catalog watch for detecting new/removed services (single connection)
-    private Watch<ServiceList> catalogWatch;
     // Health state watch for detecting health changes across all services
     private volatile boolean healthStateWatchActive = false;
     private volatile long lastHealthIndex = 0;
@@ -102,7 +104,8 @@ public class ConsulServiceRegistry {
         if (defaultEnvironment != null && !defaultEnvironment.isEmpty()) {
             reachable.add(defaultEnvironment);
         }
-        this.serviceCache = new ConsulServiceCache(reachable);
+        this.reachableEnvironments = Collections.unmodifiableSet(reachable);
+        this.serviceCacheRef = new AtomicReference<>(new ConsulServiceCache(reachable));
 
         this.consulClientOptions = new ConsulClientOptions()
             .setHost(consulHost != null ? consulHost : "localhost")
@@ -187,80 +190,14 @@ public class ConsulServiceRegistry {
         // Initial load
         loadAllServices();
 
-        // Start watching the service catalog (detects service add/remove)
-        startCatalogWatch();
-
         // Start watching health state (detects health changes across all services)
+        // This also detects new/removed services since all services have health checks
         startHealthStateWatch();
 
         // Start fallback periodic refresh
         startBackgroundRefresh(fallbackRefreshIntervalMs);
 
-        log.info("Started Consul watches with fallback refresh interval {}ms", fallbackRefreshIntervalMs);
-    }
-
-    /**
-     * Start watching the service catalog for new/removed services.
-     */
-    private void startCatalogWatch() {
-        if (catalogWatch != null) {
-            log.warn("Catalog watch already running");
-            return;
-        }
-
-        catalogWatch = Watch.services(vertx, consulClientOptions)
-            .setHandler(result -> {
-                if (result.succeeded()) {
-                    handleCatalogChange(result.prevResult(), result.nextResult());
-                } else {
-                    log.warn("Catalog watch error: {}", result.cause().getMessage());
-                }
-            })
-            .start();
-
-        log.info("Started catalog watch");
-    }
-
-    /**
-     * Handle changes to the service catalog.
-     * When services are added or removed, trigger a full reload.
-     */
-    private void handleCatalogChange(ServiceList prev, ServiceList next) {
-        Set<String> prevServices = prev != null
-            ? prev.getList().stream().map(Service::getName).collect(Collectors.toSet())
-            : Collections.emptySet();
-
-        Set<String> nextServices = next.getList().stream()
-            .map(Service::getName)
-            .filter(name -> !"consul".equals(name))
-            .collect(Collectors.toSet());
-
-        // Find new services
-        Set<String> added = new HashSet<>(nextServices);
-        added.removeAll(prevServices);
-
-        // Find removed services
-        Set<String> removed = new HashSet<>(prevServices);
-        removed.removeAll(nextServices);
-
-        if (!added.isEmpty()) {
-            log.info("New services detected: {}, triggering reload", added);
-        }
-
-        if (!removed.isEmpty()) {
-            log.info("Services removed: {}", removed);
-            for (String serviceName : removed) {
-                serviceCache.removeService(serviceName);
-                notifyServiceChange(serviceName);
-            }
-        }
-
-        // Reload all services when catalog changes
-        if (!added.isEmpty() || !removed.isEmpty()) {
-            loadAllServices();
-        }
-
-        lastLoadTime = Instant.now();
+        log.info("Started Consul health state watch with fallback refresh interval {}ms", fallbackRefreshIntervalMs);
     }
 
     /**
@@ -381,13 +318,6 @@ public class ConsulServiceRegistry {
      * Stop all watches.
      */
     public void stopWatching() {
-        // Stop catalog watch
-        if (catalogWatch != null) {
-            catalogWatch.stop();
-            catalogWatch = null;
-            log.info("Stopped catalog watch");
-        }
-
         // Stop health state watch
         stopHealthStateWatch();
 
@@ -395,7 +325,12 @@ public class ConsulServiceRegistry {
     }
 
     /**
-     * Load all services from Consul.
+     * Load all services from Consul using cache rotation.
+     * <p>
+     * This method creates a new cache, loads all services into it, warms it with
+     * the lookup keys from the old cache, and then atomically swaps the caches.
+     * This approach minimizes latency during the swap since the new cache is
+     * pre-warmed with the same lookups that were used in the old cache.
      */
     public Future<Void> loadAllServices() {
         if (!loading.compareAndSet(false, true)) {
@@ -403,7 +338,11 @@ public class ConsulServiceRegistry {
             return Future.succeededFuture();
         }
 
-        log.info("Loading services from Consul...");
+        long rotationIndex = cacheRotationIndex.incrementAndGet();
+        log.info("Loading services from Consul (cache rotation #{})", rotationIndex);
+
+        // Create a new cache for this rotation
+        ConsulServiceCache newCache = new ConsulServiceCache(reachableEnvironments);
 
         // Load coordinates in parallel with service catalog
         Future<Void> coordinatesFuture = loadCoordinates();
@@ -417,32 +356,42 @@ public class ConsulServiceRegistry {
 
                 log.debug("Found {} services in catalog", serviceNames.size());
 
-                // Load health info for each service in batches to avoid rate limiting
-                return loadServiceHealthBatched(serviceNames);
+                // Load health info for each service into the NEW cache
+                return loadServiceHealthBatchedIntoCache(serviceNames, newCache);
             });
 
         return Future.all(coordinatesFuture, servicesFuture)
             .<Void>mapEmpty()
             .onSuccess(v -> {
+                // Get the old cache and its accessed lookup keys
+                ConsulServiceCache oldCache = serviceCacheRef.get();
+                Set<ConsulServiceCache.ServiceNameWithTags> accessedKeys = oldCache.getAccessedLookupKeys();
+
+                // Warm the new cache with the same lookups as the old cache
+                if (!accessedKeys.isEmpty()) {
+                    newCache.warmCache(accessedKeys);
+                }
+
+                // Atomically swap the caches
+                serviceCacheRef.set(newCache);
+
                 lastLoadTime = Instant.now();
-                log.info("Loaded {} services with {} total instances, {} node coordinates",
-                    serviceCache.getServiceNames().size(),
-                    serviceCache.getTotalInstanceCount(),
-                    nodeCoordinates.size());
+                log.info("Cache rotation #{} complete: {} services, {} instances, {} lookup keys warmed",
+                    rotationIndex,
+                    newCache.getServiceNames().size(),
+                    newCache.getTotalInstanceCount(),
+                    accessedKeys.size());
             })
             .onFailure(err -> {
-                log.error("Failed to load services from Consul", err);
+                log.error("Failed to load services from Consul (rotation #{})", rotationIndex, err);
             })
             .andThen(ar -> loading.set(false));
     }
 
     /**
-     * Load health information for multiple services in batches to avoid rate limiting.
-     *
-     * @param serviceNames the list of service names to load
-     * @return a future that completes when all services are loaded
+     * Load health information for multiple services into a specific cache.
      */
-    private Future<Void> loadServiceHealthBatched(List<String> serviceNames) {
+    private Future<Void> loadServiceHealthBatchedIntoCache(List<String> serviceNames, ConsulServiceCache targetCache) {
         if (serviceNames.isEmpty()) {
             return Future.succeededFuture();
         }
@@ -469,7 +418,7 @@ public class ConsulServiceRegistry {
                 chain = chain.compose(v -> {
                     log.debug("Loading health batch 1 ({} services)", batch.size());
                     List<Future<Void>> futures = batch.stream()
-                        .map(this::loadServiceHealth)
+                        .map(name -> loadServiceHealthIntoCache(name, targetCache))
                         .collect(Collectors.toList());
                     return Future.all(futures).mapEmpty();
                 });
@@ -480,7 +429,7 @@ public class ConsulServiceRegistry {
                     vertx.setTimer(HEALTH_BATCH_DELAY_MS, timerId -> {
                         log.debug("Loading health batch {} ({} services)", batchNum, batch.size());
                         List<Future<Void>> futures = batch.stream()
-                            .map(this::loadServiceHealth)
+                            .map(name -> loadServiceHealthIntoCache(name, targetCache))
                             .collect(Collectors.toList());
                         Future.all(futures).<Void>mapEmpty()
                             .onComplete(delayPromise);
@@ -495,23 +444,19 @@ public class ConsulServiceRegistry {
     }
 
     /**
-     * Load health information for a specific service.
-     * Loads all instances (healthy and unhealthy) sorted by proximity to the local agent.
-     * The cache will prefer healthy instances but fall back to unhealthy if needed.
+     * Load health information for a specific service into a specific cache.
      */
-    private Future<Void> loadServiceHealth(String serviceName) {
+    private Future<Void> loadServiceHealthIntoCache(String serviceName, ConsulServiceCache targetCache) {
         ServiceQueryOptions options = new ServiceQueryOptions()
             .setNear(AGENT); // Sort by proximity to local agent
 
-        // Load ALL instances (passing=false), not just healthy ones
-        // This allows falling back to unhealthy instances when no healthy ones exist
         return consulClient.healthServiceNodesWithOptions(serviceName, false, options)
             .map(serviceEntryList -> {
                 List<ConsulService> services = serviceEntryList.getList().stream()
                     .map(ConsulService::new)
                     .collect(Collectors.toList());
 
-                serviceCache.updateServices(serviceName, services);
+                targetCache.updateServices(serviceName, services);
                 return (Void) null;
             })
             .onFailure(err -> {
@@ -627,13 +572,13 @@ public class ConsulServiceRegistry {
 
         if (envTag.isPresent()) {
             String env = envTag.get().substring(4);
-            if (!serviceCache.isEnvironmentReachable(env)) {
+            if (!serviceCacheRef.get().isEnvironmentReachable(env)) {
                 log.warn("Environment '{}' is not reachable", env);
                 return Optional.empty();
             }
         }
 
-        return serviceCache.getService(serviceName, effectiveTags);
+        return serviceCacheRef.get().getService(serviceName, effectiveTags);
     }
 
     /**
@@ -641,14 +586,23 @@ public class ConsulServiceRegistry {
      */
     public List<ConsulService> getServices(String serviceName, List<String> tags) {
         List<String> effectiveTags = (tags != null && !tags.isEmpty()) ? tags : defaultTags;
-        return serviceCache.getServices(serviceName, effectiveTags);
+        return serviceCacheRef.get().getServices(serviceName, effectiveTags);
     }
 
     /**
-     * Get the service cache for direct access or monitoring.
+     * Get the current service cache for direct access or monitoring.
+     * Note: The cache may be swapped during rotation; callers should not hold
+     * long-lived references to the returned cache.
      */
     public ConsulServiceCache getServiceCache() {
-        return serviceCache;
+        return serviceCacheRef.get();
+    }
+
+    /**
+     * Get the cache rotation index (number of times the cache has been rotated).
+     */
+    public long getCacheRotationIndex() {
+        return cacheRotationIndex.get();
     }
 
     /**
@@ -676,21 +630,21 @@ public class ConsulServiceRegistry {
      * Get the set of reachable environments.
      */
     public Set<String> getReachableEnvironments() {
-        return serviceCache.getReachableEnvironments();
+        return serviceCacheRef.get().getReachableEnvironments();
     }
 
     /**
      * Get the names of all cached services.
      */
     public Set<String> getServiceNames() {
-        return serviceCache.getServiceNames();
+        return serviceCacheRef.get().getServiceNames();
     }
 
     /**
      * Get the total number of service instances across all services.
      */
     public int getTotalInstanceCount() {
-        return serviceCache.getTotalInstanceCount();
+        return serviceCacheRef.get().getTotalInstanceCount();
     }
 
     /**
@@ -708,10 +662,10 @@ public class ConsulServiceRegistry {
     }
 
     /**
-     * Get the number of active watches (catalog watch only).
+     * Check if the health state watch is active.
      */
-    public int getActiveWatchCount() {
-        return catalogWatch != null ? 1 : 0;
+    public boolean isHealthStateWatchActive() {
+        return healthStateWatchActive;
     }
 
     /**
@@ -763,9 +717,9 @@ public class ConsulServiceRegistry {
         status.put("defaultTags", defaultTags);
         status.put("loading", loading.get());
         status.put("lastLoadTime", lastLoadTime != null ? lastLoadTime.toString() : null);
-        status.put("serviceCount", serviceCache.getServiceNames().size());
-        status.put("totalInstances", serviceCache.getTotalInstanceCount());
-        status.put("catalogWatchActive", catalogWatch != null);
+        status.put("serviceCount", serviceCacheRef.get().getServiceNames().size());
+        status.put("totalInstances", serviceCacheRef.get().getTotalInstanceCount());
+        status.put("healthStateWatchActive", healthStateWatchActive);
         return status;
     }
 }

@@ -19,7 +19,7 @@ public final class EnvironmentConfig {
     private static final int DEFAULT_READ_TIMEOUT = 30000;
     private static final int DEFAULT_MAX_AUTO_RETRIES = 0;
     private static final int DEFAULT_MAX_AUTO_RETRIES_NEXT_SERVER = 1;
-    private static final int DEFAULT_REFRESH_INTERVAL_MINUTES = 5;
+    private static final int DEFAULT_REFRESH_INTERVAL_MINUTES = 15;
 
     private EnvironmentConfig() {
         // Utility class
@@ -56,7 +56,7 @@ public final class EnvironmentConfig {
     /**
      * Get the configured refresh interval in milliseconds.
      *
-     * @return refresh interval in milliseconds (default: 5 minutes)
+     * @return refresh interval in milliseconds (default: 15 minutes)
      */
     public static long getRefreshIntervalMs() {
         int minutes = getInt("ZUUL_CONSUL_REFRESH_INTERVAL_MINUTES", "zuul.consul.refresh.interval.minutes", DEFAULT_REFRESH_INTERVAL_MINUTES);

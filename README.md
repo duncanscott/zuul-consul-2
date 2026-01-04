@@ -119,7 +119,7 @@ Nginx listens on `http://localhost:8080` and `https://localhost:8443`, forwardin
 | `ZUUL_CONSUL_AGENT_PORT` | Consul agent port | `8500` |
 | `ZUUL_CONSUL_DATACENTER` | Consul datacenter | (none) |
 | `ZUUL_CONSUL_TOKEN` | Consul ACL token | (none) |
-| `ZUUL_CONSUL_REFRESH_INTERVAL_MINUTES` | Fallback refresh interval for service catalog | `5` |
+| `ZUUL_CONSUL_REFRESH_INTERVAL_MINUTES` | Fallback refresh interval for service catalog | `15` |
 | `ZUUL_DEFAULT_ENVIRONMENT` | Default environment tag applied when URL omits `env:` | `dev` |
 | `ZUUL_REACHABLE_ENVIRONMENTS` | Colon-separated list of allowed environments | (all) |
 | `ZUUL_DEFAULT_TAGS` | Slash-separated default tags (e.g., `version:default`) | (none) |

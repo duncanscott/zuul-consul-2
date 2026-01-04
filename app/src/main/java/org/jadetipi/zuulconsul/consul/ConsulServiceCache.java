@@ -246,6 +246,57 @@ public class ConsulServiceCache {
     }
 
     /**
+     * Get all accessed lookup keys for cache warming.
+     * <p>
+     * This returns a snapshot of the service name + tags combinations that have been
+     * successfully looked up. Used during cache rotation to warm the new cache with
+     * the same lookups that were used in the old cache.
+     *
+     * @return set of lookup keys as ServiceNameWithTags records
+     */
+    public Set<ServiceNameWithTags> getAccessedLookupKeys() {
+        Set<ServiceNameWithTags> keys = new HashSet<>();
+        for (ServiceLookupKey key : lookupCache.asMap().keySet()) {
+            keys.add(new ServiceNameWithTags(key.serviceName, key.sortedTags));
+        }
+        return keys;
+    }
+
+    /**
+     * Warm the cache by pre-loading specific lookup keys.
+     * <p>
+     * Called during cache rotation to ensure the new cache has the same
+     * lookups pre-computed as the old cache.
+     *
+     * @param keysToWarm the lookup keys to warm
+     */
+    public void warmCache(Set<ServiceNameWithTags> keysToWarm) {
+        if (keysToWarm == null || keysToWarm.isEmpty()) {
+            return;
+        }
+        log.info("Warming cache with {} lookup keys", keysToWarm.size());
+        int warmed = 0;
+        for (ServiceNameWithTags key : keysToWarm) {
+            List<ConsulService> result = getServices(key.serviceName(), key.tags());
+            if (!result.isEmpty()) {
+                warmed++;
+            }
+        }
+        log.info("Cache warming complete: {} of {} keys produced results", warmed, keysToWarm.size());
+    }
+
+    /**
+     * Record representing a service name with its associated tags.
+     * Used for cache warming during cache rotation.
+     */
+    public record ServiceNameWithTags(String serviceName, List<String> tags) {
+        public ServiceNameWithTags {
+            // Defensive copy and null safety
+            tags = tags != null ? List.copyOf(tags) : List.of();
+        }
+    }
+
+    /**
      * Convert the cache to a JSON-friendly map structure.
      */
     public Map<String, Object> toMap() {
