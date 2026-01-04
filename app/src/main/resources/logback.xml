@@ -21,7 +21,7 @@
             <maxIndex>21</maxIndex>
         </rollingPolicy>
         <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
-            <MaxFileSize>10MB</MaxFileSize>
+            <MaxFileSize>100MB</MaxFileSize>
         </triggeringPolicy>
         <encoder>
             <pattern>${DefaultPattern}</pattern>
@@ -38,7 +38,7 @@
             <maxIndex>21</maxIndex>
         </rollingPolicy>
         <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
-            <MaxFileSize>10MB</MaxFileSize>
+            <MaxFileSize>100MB</MaxFileSize>
         </triggeringPolicy>
         <encoder class="net.logstash.logback.encoder.LogstashEncoder">
             <timeZone>PST</timeZone>
@@ -54,7 +54,7 @@
     </root>
 
     <!-- Application logging -->
-    <logger name="org.jadetipi.zuulconsul" level="DEBUG"/>
+    <logger name="org.jadetipi.zuulconsul" level="INFO"/>
 
     <!-- Filter logging -->
     <logger name="inbound" level="DEBUG"/>
