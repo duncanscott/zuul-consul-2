@@ -60,7 +60,7 @@ subprojects {
             spock         : '2.4-groovy-5.0',
             nimbusJoseJwt : '10.6',
             caffeine      : '3.2.3',
-            opentelemetryApi : '1.46.0',
+            opentelemetryApi : '1.57.0',
         ]
     }
 
