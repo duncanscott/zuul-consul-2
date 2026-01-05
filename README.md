@@ -694,7 +694,18 @@ zuul-consul/
 
 ## 🔧 Adding Custom Filters
 
-Create Groovy filters in `filters/src/main/groovy/`:
+Create Groovy filters in `filters/src/main/groovy/`.
+
+**Important:** Custom filters must be registered in `ZuulConsulServer.java` to be loaded. Add your filter class to the `FILTER_TYPES` set:
+
+```java
+static {
+    Set<Class<? extends ZuulFilter<?, ?>>> classes = new LinkedHashSet<>();
+    // ... existing filters ...
+    classes.add(MyCustomFilter.class);  // Add your filter here
+    FILTER_TYPES = Collections.unmodifiableSet(classes);
+}
+```
 
 ### Inbound Filter Example
 

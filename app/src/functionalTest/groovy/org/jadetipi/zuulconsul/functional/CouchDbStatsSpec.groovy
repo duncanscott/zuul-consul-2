@@ -379,6 +379,38 @@ class CouchDbStatsSpec extends Specification {
     }
 
     @IgnoreIf({ !instance.environmentReady })
+    def "by_status view should filter by HTTP status code"() {
+        given: "make requests that will succeed and fail"
+        gatewayClient.get('/env:dev/hello-service/version')  // should return 200
+        gatewayClient.get('/env:dev/non-existent-service/path')  // should return 404
+        Thread.sleep(2000)
+
+        when: "query the view for 200 status only"
+        def encodedStartKey = URLEncoder.encode('[200,""]', 'UTF-8')
+        def encodedEndKey = URLEncoder.encode('[200,"\\ufff0"]', 'UTF-8')
+        def response = couchDbClient.get(
+            "/${FunctionalTestConfig.COUCHDB_DATABASE}/_design/stats/_view/by_status?startkey=${encodedStartKey}&endkey=${encodedEndKey}&include_docs=true",
+            ['Authorization': couchDbAuth]
+        )
+
+        then: "query succeeds"
+        response.success
+
+        and: "only 200 status documents are returned (if CouchDB logging is enabled)"
+        if (couchDbEnabled) {
+            def rows = response.json?.rows ?: []
+            println "Found ${rows.size()} documents with status 200"
+
+            assert rows.size() > 0 : "Expected at least one document with status 200"
+
+            rows.each { row ->
+                def doc = row.doc
+                assert doc.http_response_status_code == 200 : "Expected status 200, got ${doc.http_response_status_code}"
+            }
+        }
+    }
+
+    @IgnoreIf({ !instance.environmentReady })
     def "errors view should only return error documents"() {
         given: "make a request that will fail (non-existent service)"
         gatewayClient.get('/env:dev/this-service-does-not-exist/path')

@@ -27,6 +27,9 @@ import org.jadetipi.zuulconsul.origins.ConsulOriginManager;
 import org.jadetipi.zuulconsul.security.JwtValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import inbound.BodyBufferFilter;
+import inbound.RequestIdFilter;
+import outbound.CouchDbStatsFilter;
 import outbound.StatsFilter;
 import inbound.ConsulRoutingFilter;
 
@@ -55,10 +58,15 @@ public class ZuulConsulServer {
 
     static {
         Set<Class<? extends ZuulFilter<?, ?>>> classes = new LinkedHashSet<>();
-        classes.add(ConsulRoutingFilter.class);
+        // Inbound filters (run in filterOrder() order, lower values first)
+        classes.add(BodyBufferFilter.class);    // 5 - buffers request body (if enabled)
+        classes.add(RequestIdFilter.class);     // 10 - sets trace context
+        classes.add(ConsulRoutingFilter.class); // 100 - routes to backend service
         classes.add(ContextRootFilter.class);
         classes.add(ServiceRegistryEndpoint.class);
-        classes.add(StatsFilter.class);
+        // Outbound filters
+        classes.add(StatsFilter.class);         // 2000 - logs stats
+        classes.add(CouchDbStatsFilter.class);  // 2100 - posts to CouchDB
         FILTER_TYPES = Collections.unmodifiableSet(classes);
     }
 
