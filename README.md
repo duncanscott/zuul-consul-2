@@ -531,68 +531,71 @@ export ZUUL_COUCHDB_PASSWORD=password
 
 #### Document Structure
 
-Each request creates a JSON document:
+Each request creates a JSON document using [Elastic Common Schema (ECS)](https://www.elastic.co/guide/en/ecs/current/ecs-field-reference.html) and [OpenTelemetry semantic conventions](https://opentelemetry.io/docs/specs/semconv/http/http-spans/):
 
 ```json
 {
-  "_id": "auto-generated",
-  "timestamp": "2026-01-04T10:30:00-08:00",
+  "_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "@timestamp": "2026-01-04T10:30:00-08:00",
   "type": "request_stats",
-  "zuul_consul_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "trace.id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "span.id": "b7ad6b7169203331",
+  "zuul_consul_parent_id": "a1b2c3d4e5f67890",
   "zuul_consul_root_id": "4bf92f3577b34da6a3ce929d0e0e4736",
-  "span_id": "b7ad6b7169203331",
-  "service_name": "my-service",
-  "team": "my",
-  "service_uri": "http://10.0.1.5:8080/api/users",
-  "service_host_name": "10.0.1.5",
-  "server_address": "10.0.1.5",
-  "service_port": 8080,
-  "server_port": 8080,
-  "service_url_path": "/api/users",
-  "http_request_method": "POST",
-  "original_uri": "/env:dev/my-service/api/users",
-  "url_path": "/api/users",
-  "http_response_status_code": 200,
-  "milliseconds": 45,
-  "tags": { "env": "dev" },
-  "forwarded_for_ip": "192.168.1.100",
-  "client_address": "192.168.1.100",
-  "http_request_body_content": "{\"name\": \"John\", \"email\": \"john@example.com\"}",
-  "http_response_body_content": "{\"id\": 123, \"status\": \"created\"}",
-  "error": false
+  "service.name": "my-service",
+  "labels.team": "my",
+  "labels.env": "dev",
+  "labels.version": "v1",
+  "url.full": "http://10.0.1.5:8080/api/users",
+  "url.original": "/env:dev/my-service/api/users",
+  "url.path": "/api/users",
+  "server.address": "10.0.1.5",
+  "server.port": 8080,
+  "http.request.method": "POST",
+  "http.response.status_code": 200,
+  "event.duration": 45,
+  "event.outcome": "success",
+  "client.ip": "192.168.1.100",
+  "client.address": "192.168.1.100",
+  "http.request.body.content": { "name": "John", "email": "john@example.com" },
+  "http.response.body.content": { "id": 123, "status": "created" }
 }
 ```
 
-| Field | OTel Equivalent | Description |
-|-------|-----------------|-------------|
-| `timestamp` | — | ISO8601 formatted request timestamp |
-| `type` | — | Always `request_stats` (useful for CouchDB views) |
-| `zuul_consul_id` | — | Request trace ID (W3C-compatible) |
-| `zuul_consul_parent_id` | — | Parent request ID (for nested calls) |
-| `zuul_consul_root_id` | — | Root request ID in call chain |
-| `span_id` | — | W3C span ID |
-| `service_name` | — | Target service name from Consul |
-| `team` | — | Team prefix extracted from service name (before first `-`) |
-| `service_uri` | — | Full URI of the selected backend instance |
-| `service_host_name` | `server_address` | Backend host |
-| `service_port` | `server_port` | Backend port |
-| `service_url_path` | — | Path portion of backend URI |
-| `http_request_method` | — | HTTP method (GET, POST, etc.) |
-| `original_uri` | — | Original request path including tags |
-| `url_path` | — | Path sent to backend service |
-| `http_response_status_code` | — | HTTP response status code |
-| `milliseconds` | — | Request duration in milliseconds |
-| `tags` | — | Map of URL tags (e.g., `{"env": "dev", "version": "v1"}`) |
-| `forwarded_for_ip` | `client_address` | Client IP from X-Forwarded-For header |
-| `http_request_body_content` | — | JSON request body (requires `ZUUL_BUFFER_REQUEST_BODY=true`) |
-| `http_response_body_content` | — | JSON response body (when `Content-Type: application/json`) |
-| `error` | — | `true` for 4xx/5xx responses |
-| `server_error` | — | `true` for 5xx responses |
+**Key features:**
+- Document `_id` is set to `trace.id` for easy lookup by trace ID from logs
+- Field names use dots (`.`) per ECS conventions
+- Body content is stored as JSON objects (not escaped strings)
 
-Fields with OTel equivalents are logged under both names for compatibility with [OpenTelemetry semantic conventions](https://opentelemetry.io/docs/specs/semconv/http/http-spans/).
+| Field | Standard | Description |
+|-------|----------|-------------|
+| `_id` | CouchDB | Document ID, set to trace.id for easy lookup |
+| `@timestamp` | ECS | ISO8601 formatted request timestamp |
+| `type` | — | Always `request_stats` (for CouchDB views) |
+| `trace.id` | ECS | W3C trace ID (same as `_id`) |
+| `span.id` | ECS | W3C span ID |
+| `zuul_consul_parent_id` | custom | Parent request ID (for nested calls) |
+| `zuul_consul_root_id` | custom | Root request ID in call chain |
+| `service.name` | ECS | Target service name from Consul |
+| `labels.team` | ECS | Team prefix from service name (before first `-`) |
+| `labels.*` | ECS | Dynamic labels from URL tags (e.g., `labels.env`, `labels.version`) |
+| `url.full` | ECS | Full URI of the selected backend instance |
+| `url.original` | ECS | Original request path including tags |
+| `url.path` | ECS | Path sent to backend service |
+| `server.address` | OTel | Backend host |
+| `server.port` | OTel | Backend port |
+| `http.request.method` | ECS | HTTP method (GET, POST, etc.) |
+| `http.response.status_code` | ECS | HTTP response status code |
+| `event.duration` | ECS | Request duration in milliseconds |
+| `event.outcome` | ECS | `success` or `failure` |
+| `error.type` | ECS | `client_error` (4xx) or `server_error` (5xx) |
+| `client.ip` | ECS | Client IP from X-Forwarded-For header |
+| `client.address` | OTel | Client address (same as `client.ip`) |
+| `http.request.body.content` | ECS | JSON request body object (requires `ZUUL_BUFFER_REQUEST_BODY=true`) |
+| `http.response.body.content` | ECS | JSON response body object |
 
 **Body content notes:**
-- Body fields use ECS naming: `http.request.body.content` and `http.response.body.content` (with underscores for JSON keys)
+- Body fields store actual JSON objects/arrays (not escaped strings)
 - Only JSON bodies are captured (validated by checking `Content-Type` header and parsing)
 - Bodies larger than 1MB are skipped to avoid memory issues
 - Request body capture requires explicit opt-in via `ZUUL_BUFFER_REQUEST_BODY=true`
@@ -603,10 +606,10 @@ The gateway automatically creates a design document (`_design/stats`) with views
 
 | View | Key | Description |
 |------|-----|-------------|
-| `by_timestamp` | `timestamp` | Query by time range using `startkey`/`endkey` |
-| `by_service` | `[service_name, timestamp]` | Filter by service, then time range |
-| `by_status` | `[http_response_status_code, timestamp]` | Filter by HTTP status, then time range |
-| `errors` | `timestamp` | Query only error requests (4xx/5xx) by time |
+| `by_timestamp` | `@timestamp` | Query by time range using `startkey`/`endkey` |
+| `by_service` | `[service.name, @timestamp]` | Filter by service, then time range |
+| `by_status` | `[http.response.status_code, @timestamp]` | Filter by HTTP status, then time range |
+| `errors` | `@timestamp` | Query only requests with `event.outcome=failure` |
 
 **Query examples:**
 
@@ -635,6 +638,12 @@ Access CouchDB Fauxton UI at `http://localhost:5994/_utils/` to browse documents
 Query all documents:
 ```bash
 curl -u admin:password http://localhost:5994/zuul-consul/_all_docs?include_docs=true
+```
+
+**Looking up by trace ID:** Each document's `_id` matches its `trace.id`, so you can look up a request directly using the trace ID from logs:
+```bash
+# Get document by trace ID
+curl -u admin:password http://localhost:5994/zuul-consul/4bf92f3577b34da6a3ce929d0e0e4736
 ```
 
 The stats are posted asynchronously to avoid impacting request latency.

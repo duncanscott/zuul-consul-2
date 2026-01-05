@@ -19,6 +19,9 @@ import spock.lang.Requires
  *    - ZUUL_COUCHDB_PASSWORD=password
  *
  * Run with: ./gradlew :app:functionalTest --tests CouchDbStatsSpec
+ *
+ * Field names follow Elastic Common Schema (ECS) and OpenTelemetry conventions.
+ * Document _id is set to trace.id for easy lookup by trace ID.
  */
 @Stepwise
 class CouchDbStatsSpec extends Specification {
@@ -161,7 +164,7 @@ class CouchDbStatsSpec extends Specification {
     }
 
     @IgnoreIf({ !instance.environmentReady })
-    def "stats document should contain required fields"() {
+    def "stats document should contain required ECS fields"() {
         given: "make a request to generate a stats document"
         gatewayClient.get('/env:dev/hello-service/info')
         Thread.sleep(2000)
@@ -175,29 +178,34 @@ class CouchDbStatsSpec extends Specification {
         then: "response is successful"
         response.success
 
-        and: "document exists and has expected structure"
+        and: "document exists and has expected ECS structure"
         if (couchDbEnabled && response.json?.rows?.size() > 0) {
             def doc = response.json.rows[0].doc
 
-            // Core fields
-            assert doc.timestamp != null : "Missing timestamp"
+            // Core fields (ECS)
+            assert doc['@timestamp'] != null : "Missing @timestamp"
             assert doc.type == 'request_stats' : "Wrong type: ${doc.type}"
 
-            // Trace context
-            assert doc.zuul_consul_id != null : "Missing zuul_consul_id"
+            // Trace context (ECS trace fields)
+            assert doc['trace.id'] != null : "Missing trace.id"
+            // Document _id should match trace.id
+            assert doc._id == doc['trace.id'] : "Document _id should match trace.id"
 
-            // Service info
-            assert doc.service_name != null : "Missing service_name"
+            // Service info (ECS)
+            assert doc['service.name'] != null : "Missing service.name"
 
-            // Request info
-            assert doc.http_request_method != null : "Missing http_request_method"
-            assert doc.url_path != null : "Missing url_path"
+            // Request info (ECS HTTP fields)
+            assert doc['http.request.method'] != null : "Missing http.request.method"
+            assert doc['url.path'] != null : "Missing url.path"
 
-            // Response info
-            assert doc.http_response_status_code != null : "Missing http_response_status_code"
+            // Response info (ECS HTTP fields)
+            assert doc['http.response.status_code'] != null : "Missing http.response.status_code"
 
-            // Duration
-            assert doc.milliseconds != null : "Missing milliseconds"
+            // Duration (ECS event field)
+            assert doc['event.duration'] != null : "Missing event.duration"
+
+            // Event outcome (ECS)
+            assert doc['event.outcome'] != null : "Missing event.outcome"
         }
     }
 
@@ -223,12 +231,10 @@ class CouchDbStatsSpec extends Specification {
             def doc = response.json.rows[0].doc
 
             // Service was routed to echo-service
-            assert doc.service_name == 'echo-service' : "Expected echo-service, got ${doc.service_name}"
+            assert doc['service.name'] == 'echo-service' : "Expected echo-service, got ${doc['service.name']}"
 
-            // Tags were parsed (env:test)
-            if (doc.tags) {
-                assert doc.tags.env == 'test' : "Expected env:test tag"
-            }
+            // Labels were parsed (env:test)
+            assert doc['labels.env'] == 'test' : "Expected labels.env=test"
         }
     }
 
@@ -249,12 +255,13 @@ class CouchDbStatsSpec extends Specification {
         then:
         response.success
 
-        and: "error flag is set if CouchDB is enabled"
+        and: "event.outcome is failure if CouchDB is enabled"
         if (couchDbEnabled && response.json?.rows?.size() > 0) {
             def doc = response.json.rows[0].doc
-            // Error responses should have error flag
-            if (doc.http_response_status_code >= 400) {
-                assert doc.error == true : "Expected error flag for status ${doc.http_response_status_code}"
+            // Error responses should have event.outcome=failure
+            if (doc['http.response.status_code'] >= 400) {
+                assert doc['event.outcome'] == 'failure' : "Expected event.outcome=failure for status ${doc['http.response.status_code']}"
+                assert doc['error.type'] != null : "Expected error.type for failure"
             }
         }
     }
@@ -280,13 +287,43 @@ class CouchDbStatsSpec extends Specification {
         if (couchDbEnabled && response.json?.rows?.size() > 0) {
             def doc = response.json.rows[0].doc
 
-            // These are the OTel aliases we added
-            if (doc.service_host_name) {
-                assert doc.server_address == doc.service_host_name : "server.address should match service.host.name"
-            }
-            if (doc.service_port) {
-                assert doc.server_port == doc.service_port : "server.port should match service.port"
-            }
+            // Server fields (OTel)
+            assert doc['server.address'] != null : "Missing server.address"
+            assert doc['server.port'] != null : "Missing server.port"
+
+            // URL fields (ECS/OTel)
+            assert doc['url.full'] != null : "Missing url.full"
+            assert doc['url.original'] != null : "Missing url.original"
+        }
+    }
+
+    // ==================== Document ID by Trace ID ====================
+
+    @IgnoreIf({ !instance.environmentReady })
+    def "document can be looked up by trace ID"() {
+        given: "make a request and get trace ID from response"
+        gatewayClient.get('/env:dev/hello-service/version')
+        Thread.sleep(2000)
+
+        when: "fetch the most recent document to get its trace ID"
+        def allDocsResponse = couchDbClient.get(
+            "/${FunctionalTestConfig.COUCHDB_DATABASE}/_all_docs?include_docs=true&descending=true&limit=1",
+            ['Authorization': couchDbAuth]
+        )
+
+        then: "we can look up the document directly by trace ID"
+        if (couchDbEnabled && allDocsResponse.json?.rows?.size() > 0) {
+            def doc = allDocsResponse.json.rows[0].doc
+            String traceId = doc['trace.id']
+
+            // Fetch document directly by trace ID
+            def directResponse = couchDbClient.get(
+                "/${FunctionalTestConfig.COUCHDB_DATABASE}/${traceId}",
+                ['Authorization': couchDbAuth]
+            )
+
+            assert directResponse.success : "Should be able to fetch document by trace ID"
+            assert directResponse.json['trace.id'] == traceId : "Retrieved document should have same trace.id"
         }
     }
 
@@ -338,12 +375,12 @@ class CouchDbStatsSpec extends Specification {
 
             assert rows.size() > 0 : "Expected at least one document in the time range"
 
-            // Verify all returned documents have timestamps within the range
+            // Verify all returned documents have @timestamp within the range
             rows.each { row ->
                 def doc = row.doc
-                assert doc.timestamp != null : "Document missing timestamp"
-                assert doc.timestamp >= startKey : "Timestamp ${doc.timestamp} is before startKey ${startKey}"
-                assert doc.timestamp <= endKey : "Timestamp ${doc.timestamp} is after endKey ${endKey}"
+                assert doc['@timestamp'] != null : "Document missing @timestamp"
+                assert doc['@timestamp'] >= startKey : "@timestamp ${doc['@timestamp']} is before startKey ${startKey}"
+                assert doc['@timestamp'] <= endKey : "@timestamp ${doc['@timestamp']} is after endKey ${endKey}"
             }
         }
     }
@@ -373,7 +410,7 @@ class CouchDbStatsSpec extends Specification {
 
             rows.each { row ->
                 def doc = row.doc
-                assert doc.service_name == 'hello-service' : "Expected hello-service, got ${doc.service_name}"
+                assert doc['service.name'] == 'hello-service' : "Expected hello-service, got ${doc['service.name']}"
             }
         }
     }
@@ -405,7 +442,7 @@ class CouchDbStatsSpec extends Specification {
 
             rows.each { row ->
                 def doc = row.doc
-                assert doc.http_response_status_code == 200 : "Expected status 200, got ${doc.http_response_status_code}"
+                assert doc['http.response.status_code'] == 200 : "Expected status 200, got ${doc['http.response.status_code']}"
             }
         }
     }
@@ -425,14 +462,14 @@ class CouchDbStatsSpec extends Specification {
         then: "query succeeds"
         response.success
 
-        and: "all returned documents have error flag (if CouchDB logging is enabled)"
+        and: "all returned documents have event.outcome=failure (if CouchDB logging is enabled)"
         if (couchDbEnabled) {
             def rows = response.json?.rows ?: []
             println "Found ${rows.size()} error documents"
 
             rows.each { row ->
                 def doc = row.doc
-                assert doc.error == true : "Expected error=true for document ${doc._id}"
+                assert doc['event.outcome'] == 'failure' : "Expected event.outcome=failure for document ${doc._id}"
             }
         }
     }

@@ -29,17 +29,11 @@ import java.util.Base64
  * ZUUL_COUCHDB_PASSWORD=password
  * </pre>
  * <p>
- * The filter posts a JSON document for each request containing:
- * <ul>
- *   <li>timestamp - ISO8601 formatted timestamp</li>
- *   <li>trace_id - W3C trace ID</li>
- *   <li>span_id - W3C span ID</li>
- *   <li>service - target service name</li>
- *   <li>method - HTTP method</li>
- *   <li>status - HTTP response status code</li>
- *   <li>path - request path</li>
- *   <li>duration_ms - request duration in milliseconds</li>
- * </ul>
+ * Field naming follows Elastic Common Schema (ECS) and OpenTelemetry conventions.
+ * The document _id is set to the trace.id for easy lookup.
+ *
+ * @see <a href="https://www.elastic.co/guide/en/ecs/current/ecs-field-reference.html">ECS Field Reference</a>
+ * @see <a href="https://opentelemetry.io/docs/specs/semconv/http/http-spans/">OTel HTTP Semantic Conventions</a>
  */
 @Slf4j
 class CouchDbStatsFilter extends HttpOutboundSyncFilter {
@@ -116,16 +110,26 @@ class CouchDbStatsFilter extends HttpOutboundSyncFilter {
     private void postToCouchDb(HttpResponseMessage response) {
         SessionContext context = response.getContext()
 
+        // Get trace ID for document _id
+        String traceId = context.get(RequestIdFilter.TRACE_ID) as String
+        if (!traceId) {
+            // Generate a UUID if no trace ID available
+            traceId = UUID.randomUUID().toString().replace('-', '')
+        }
+
         // Build the document
-        Map<String, Object> doc = buildDocument(context, response)
+        Map<String, Object> doc = buildDocument(context, response, traceId)
         String json = objectMapper.writeValueAsString(doc)
+
+        // Use PUT with trace ID as document _id for easy lookup
+        String docUrl = "${couchDbUrl}/${traceId}"
 
         // Build the request
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
-            .uri(URI.create(couchDbUrl))
+            .uri(URI.create(docUrl))
             .timeout(Duration.ofSeconds(10))
             .header('Content-Type', 'application/json')
-            .POST(HttpRequest.BodyPublishers.ofString(json))
+            .PUT(HttpRequest.BodyPublishers.ofString(json))
 
         if (authHeader) {
             requestBuilder.header('Authorization', authHeader)
@@ -137,7 +141,7 @@ class CouchDbStatsFilter extends HttpOutboundSyncFilter {
         httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
             .thenAccept { resp ->
                 if (resp.statusCode() >= 200 && resp.statusCode() < 300) {
-                    log.trace("Posted stats to CouchDB: {}", resp.statusCode())
+                    log.trace("Posted stats to CouchDB: {} -> {}", traceId, resp.statusCode())
                 } else {
                     log.warn("CouchDB returned status {}: {}", resp.statusCode(), resp.body())
                 }
@@ -151,31 +155,33 @@ class CouchDbStatsFilter extends HttpOutboundSyncFilter {
     /**
      * Build the CouchDB document with all request stats.
      * <p>
-     * Field naming follows the original zuul-consul Stats.groovy for consistency
-     * with existing log parsing. For future additions, consider Elastic Common
-     * Schema (ECS) conventions.
+     * Field naming follows Elastic Common Schema (ECS) and OpenTelemetry conventions.
+     * Fields use dots (.) as separators per ECS conventions.
      *
      * @see <a href="https://www.elastic.co/guide/en/ecs/current/ecs-field-reference.html">ECS Field Reference</a>
+     * @see <a href="https://opentelemetry.io/docs/specs/semconv/http/http-spans/">OTel HTTP Semantic Conventions</a>
      */
-    private Map<String, Object> buildDocument(SessionContext context, HttpResponseMessage response) {
+    private Map<String, Object> buildDocument(SessionContext context, HttpResponseMessage response, String traceId) {
         Map<String, Object> doc = new LinkedHashMap<>()
 
-        // Timestamp
-        doc.put('timestamp', ISO_FORMATTER.format(Instant.now()))
+        // Document metadata
+        doc.put('_id', traceId)
+
+        // Timestamp (ECS standard field)
+        doc.put('@timestamp', ISO_FORMATTER.format(Instant.now()))
         doc.put('type', 'request_stats')
 
-        // Trace context (using old zuul-consul field names for compatibility)
-        String traceId = context.get(RequestIdFilter.TRACE_ID) as String
+        // Trace context (ECS trace fields)
+        doc.put('trace.id', traceId)
+
         String spanId = context.get(RequestIdFilter.SPAN_ID) as String
+        if (spanId) {
+            doc.put('span.id', spanId)
+        }
+
+        // Custom trace fields for call chain tracking (using underscores as not in ECS)
         String parentId = context.get(RequestIdFilter.PARENT_ID) as String
         String rootId = context.get(RequestIdFilter.ROOT_ID) as String
-
-        if (traceId) {
-            doc.put('zuul_consul_id', traceId)
-        }
-        if (spanId) {
-            doc.put('span_id', spanId)
-        }
         if (parentId) {
             doc.put('zuul_consul_parent_id', parentId)
         }
@@ -183,101 +189,94 @@ class CouchDbStatsFilter extends HttpOutboundSyncFilter {
             doc.put('zuul_consul_root_id', rootId)
         }
 
-        // Service info
+        // Service info (ECS service fields)
         String serviceName = context.get(CONSUL_SERVICE_NAME) as String
         if (serviceName) {
-            doc.put('service_name', serviceName)
-            // Extract team prefix (fields.team in MDC)
+            doc.put('service.name', serviceName)
+            // Extract team prefix as label
             if (serviceName.contains('-')) {
-                doc.put('team', serviceName.split('-')[0])
+                doc.put('labels.team', serviceName.split('-')[0])
             }
         }
 
-        // Service URI components (matching old Stats.groovy field names)
+        // Service URI components (OTel and ECS conventions)
         String serviceUri = context.get(CONSUL_SERVICE_URI) as String
         if (serviceUri) {
-            doc.put('service_uri', serviceUri)
+            doc.put('url.full', serviceUri)
             try {
                 URI uri = new URI(serviceUri)
                 if (uri.host) {
-                    doc.put('service_host_name', uri.host)
-                    doc.put('server_address', uri.host)  // OTel semantic convention
+                    doc.put('server.address', uri.host)
                 }
                 if (uri.port > 0) {
-                    doc.put('service_port', uri.port)
-                    doc.put('server_port', uri.port)  // OTel semantic convention
-                }
-                if (uri.path) {
-                    doc.put('service_url_path', uri.path)
+                    doc.put('server.port', uri.port)
                 }
             } catch (Exception e) {
                 // Ignore parse errors
             }
         }
 
-        // Request info (ECS-compatible field names)
+        // Request info (ECS HTTP fields)
         def inboundRequest = response.getInboundRequest()
         if (inboundRequest) {
-            doc.put('http_request_method', inboundRequest.getMethod() ?: 'unknown')
-            doc.put('original_uri', context.get(CONSUL_ORIGINAL_URI) as String ?: inboundRequest.getPath())
+            doc.put('http.request.method', inboundRequest.getMethod() ?: 'unknown')
+            doc.put('url.original', context.get(CONSUL_ORIGINAL_URI) as String ?: inboundRequest.getPath())
         }
-        doc.put('url_path', context.get(CONSUL_REQUEST_PATH) as String ?: '/')
+        doc.put('url.path', context.get(CONSUL_REQUEST_PATH) as String ?: '/')
 
-        // Response info (ECS-compatible)
-        doc.put('http_response_status_code', response.getStatus())
+        // Response info (ECS HTTP fields)
+        doc.put('http.response.status_code', response.getStatus())
 
-        // Duration (milliseconds to match old Stats.groovy)
+        // Duration in milliseconds (custom field, keeping for human readability)
         Long startNano = context.get(CONSUL_START_NANO) as Long
         if (startNano) {
             long durationMs = Math.max(0L, (System.nanoTime() - startNano) / 1_000_000L)
-            doc.put('milliseconds', durationMs)
+            doc.put('event.duration', durationMs)
         }
 
-        // Dynamic tags from URI (e.g., env:dev, version:v1)
+        // Dynamic tags from URI as labels (ECS labels field)
         List<String> tags = context.get(CONSUL_SERVICE_TAGS) as List<String>
         if (tags) {
-            Map<String, String> tagMap = new LinkedHashMap<>()
             tags.each { String tag ->
                 if (tag?.contains(':')) {
                     String[] parts = tag.split(':', 2)
                     if (parts.length == 2) {
-                        tagMap.put(parts[0], parts[1])
+                        doc.put("labels.${parts[0]}", parts[1])
                     }
                 }
             }
-            if (!tagMap.isEmpty()) {
-                doc.put('tags', tagMap)
-            }
         }
 
-        // X-Forwarded-For
+        // X-Forwarded-For (ECS client fields)
         String forwardedFor = inboundRequest?.getHeaders()?.getFirst('X-Forwarded-For')
         if (forwardedFor) {
             String clientIp = forwardedFor.split(',')[0].trim()
-            doc.put('forwarded_for_ip', clientIp)
-            doc.put('client_address', clientIp)  // OTel semantic convention
+            doc.put('client.ip', clientIp)
+            doc.put('client.address', clientIp)  // OTel semantic convention
         }
 
-        // Error info if applicable
+        // Event outcome (ECS event fields)
         if (response.getStatus() >= 400) {
-            doc.put('error', true)
+            doc.put('event.outcome', 'failure')
             if (response.getStatus() >= 500) {
-                doc.put('server_error', true)
+                doc.put('error.type', 'server_error')
+            } else {
+                doc.put('error.type', 'client_error')
             }
+        } else {
+            doc.put('event.outcome', 'success')
         }
 
-        // Request body (if buffered by BodyBufferFilter and is JSON)
-        // ECS field: http.request.body.content
+        // Request body as JSON object (ECS http.request.body.content)
         String requestBody = context.get(BodyBufferFilter.REQUEST_BODY_KEY) as String
         if (requestBody) {
-            // Validate it's actually JSON before storing
-            if (isValidJson(requestBody)) {
-                doc.put('http_request_body_content', requestBody)
+            Object parsedBody = parseJsonContent(requestBody)
+            if (parsedBody != null) {
+                doc.put('http.request.body.content', parsedBody)
             }
         }
 
-        // Response body (if JSON)
-        // ECS field: http.response.body.content
+        // Response body as JSON object (ECS http.response.body.content)
         try {
             String responseContentType = response.getHeaders()?.getFirst('Content-Type')
             if (responseContentType?.toLowerCase()?.contains('application/json')) {
@@ -285,8 +284,9 @@ class CouchDbStatsFilter extends HttpOutboundSyncFilter {
                     byte[] bodyBytes = response.getBody()
                     if (bodyBytes != null && bodyBytes.length > 0 && bodyBytes.length <= MAX_BODY_SIZE) {
                         String responseBody = new String(bodyBytes, 'UTF-8')
-                        if (isValidJson(responseBody)) {
-                            doc.put('http_response_body_content', responseBody)
+                        Object parsedBody = parseJsonContent(responseBody)
+                        if (parsedBody != null) {
+                            doc.put('http.response.body.content', parsedBody)
                         }
                     }
                 }
@@ -305,22 +305,23 @@ class CouchDbStatsFilter extends HttpOutboundSyncFilter {
     private static final int MAX_BODY_SIZE = 1024 * 1024
 
     /**
-     * Check if a string is valid JSON.
+     * Parse a JSON string into a Map or List for storage as a JSON object.
+     * Returns null if not valid JSON.
      */
-    private static boolean isValidJson(String str) {
+    private static Object parseJsonContent(String str) {
         if (str == null || str.isEmpty()) {
-            return false
+            return null
         }
         String trimmed = str.trim()
         // Quick check: must start with { or [
         if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
-            return false
+            return null
         }
         try {
-            objectMapper.readTree(str)
-            return true
+            // Parse as generic Object (will be Map or List)
+            return objectMapper.readValue(str, Object.class)
         } catch (Exception e) {
-            return false
+            return null
         }
     }
 }

@@ -42,12 +42,15 @@ public class CouchDbInitializer {
     /**
      * The design document JSON with views for querying stats.
      * <p>
+     * Field names follow Elastic Common Schema (ECS) conventions with dots.
+     * JavaScript bracket notation is used to access dotted field names.
+     * <p>
      * Views:
      * <ul>
-     *   <li>by_timestamp - emits timestamp as key, allows startkey/endkey range queries</li>
-     *   <li>by_service - emits [service_name, timestamp] for filtering by service</li>
-     *   <li>by_status - emits [http_response_status_code, timestamp] for filtering by status</li>
-     *   <li>errors - emits timestamp for documents with error=true</li>
+     *   <li>by_timestamp - emits @timestamp as key, allows startkey/endkey range queries</li>
+     *   <li>by_service - emits [service.name, @timestamp] for filtering by service</li>
+     *   <li>by_status - emits [http.response.status_code, @timestamp] for filtering by status</li>
+     *   <li>errors - emits @timestamp for documents with event.outcome='failure'</li>
      * </ul>
      */
     private static final String DESIGN_DOC_JSON = """
@@ -55,16 +58,16 @@ public class CouchDbInitializer {
           "_id": "_design/stats",
           "views": {
             "by_timestamp": {
-              "map": "function(doc) { if (doc.type === 'request_stats' && doc.timestamp) { emit(doc.timestamp, null); } }"
+              "map": "function(doc) { if (doc.type === 'request_stats' && doc['@timestamp']) { emit(doc['@timestamp'], null); } }"
             },
             "by_service": {
-              "map": "function(doc) { if (doc.type === 'request_stats' && doc.service_name && doc.timestamp) { emit([doc.service_name, doc.timestamp], null); } }"
+              "map": "function(doc) { if (doc.type === 'request_stats' && doc['service.name'] && doc['@timestamp']) { emit([doc['service.name'], doc['@timestamp']], null); } }"
             },
             "by_status": {
-              "map": "function(doc) { if (doc.type === 'request_stats' && doc.http_response_status_code && doc.timestamp) { emit([doc.http_response_status_code, doc.timestamp], null); } }"
+              "map": "function(doc) { if (doc.type === 'request_stats' && doc['http.response.status_code'] && doc['@timestamp']) { emit([doc['http.response.status_code'], doc['@timestamp']], null); } }"
             },
             "errors": {
-              "map": "function(doc) { if (doc.type === 'request_stats' && doc.error === true && doc.timestamp) { emit(doc.timestamp, null); } }"
+              "map": "function(doc) { if (doc.type === 'request_stats' && doc['event.outcome'] === 'failure' && doc['@timestamp']) { emit(doc['@timestamp'], null); } }"
             }
           },
           "language": "javascript"
