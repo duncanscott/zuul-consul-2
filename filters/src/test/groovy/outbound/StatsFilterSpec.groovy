@@ -19,6 +19,7 @@ class StatsFilterSpec extends Specification {
         def filter = new StatsFilter(registry)
         def ctx = new SessionContext()
         ctx.set(StatsFilter.CONSUL_SERVICE_NAME, "svc-demo")
+        ctx.set(StatsFilter.CONSUL_SERVICE_URI, "http://localhost:8080/api")
         ctx.set(StatsFilter.CONSUL_REQUEST_PATH, "/api")
         ctx.set(StatsFilter.CONSUL_START_NANO, System.nanoTime() - 5_000_000L) // ~5ms
 
