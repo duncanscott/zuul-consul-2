@@ -289,4 +289,119 @@ class CouchDbStatsSpec extends Specification {
             }
         }
     }
+
+    // ==================== CouchDB View Tests ====================
+
+    @IgnoreIf({ !instance.environmentReady })
+    def "by_timestamp view should exist and be queryable"() {
+        when: "query the by_timestamp view"
+        def response = couchDbClient.get(
+            "/${FunctionalTestConfig.COUCHDB_DATABASE}/_design/stats/_view/by_timestamp?limit=1",
+            ['Authorization': couchDbAuth]
+        )
+
+        then: "view exists and returns results"
+        response.success
+        response.json.rows != null
+    }
+
+    @IgnoreIf({ !instance.environmentReady })
+    def "by_timestamp view should support range queries with startkey and endkey"() {
+        given: "record timestamp before making requests"
+        def startTime = java.time.OffsetDateTime.now().minusMinutes(1)
+        def startKey = startTime.format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+
+        and: "make several requests through the gateway"
+        gatewayClient.get('/env:dev/hello-service/version')
+        gatewayClient.get('/env:dev/echo-service/echo')
+        Thread.sleep(2000)
+
+        and: "record timestamp after requests"
+        def endTime = java.time.OffsetDateTime.now().plusMinutes(1)
+        def endKey = endTime.format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+
+        when: "query the view with time range"
+        def encodedStartKey = URLEncoder.encode("\"${startKey}\"", 'UTF-8')
+        def encodedEndKey = URLEncoder.encode("\"${endKey}\"", 'UTF-8')
+        def response = couchDbClient.get(
+            "/${FunctionalTestConfig.COUCHDB_DATABASE}/_design/stats/_view/by_timestamp?startkey=${encodedStartKey}&endkey=${encodedEndKey}&include_docs=true",
+            ['Authorization': couchDbAuth]
+        )
+
+        then: "query succeeds"
+        response.success
+
+        and: "results are returned within the time range (if CouchDB logging is enabled)"
+        if (couchDbEnabled) {
+            def rows = response.json?.rows ?: []
+            println "Found ${rows.size()} documents in time range"
+
+            assert rows.size() > 0 : "Expected at least one document in the time range"
+
+            // Verify all returned documents have timestamps within the range
+            rows.each { row ->
+                def doc = row.doc
+                assert doc.timestamp != null : "Document missing timestamp"
+                assert doc.timestamp >= startKey : "Timestamp ${doc.timestamp} is before startKey ${startKey}"
+                assert doc.timestamp <= endKey : "Timestamp ${doc.timestamp} is after endKey ${endKey}"
+            }
+        }
+    }
+
+    @IgnoreIf({ !instance.environmentReady })
+    def "by_service view should filter by service name"() {
+        given: "make requests to different services"
+        gatewayClient.get('/env:dev/hello-service/version')
+        gatewayClient.get('/env:dev/echo-service/echo')
+        Thread.sleep(2000)
+
+        when: "query the view for hello-service only"
+        def encodedStartKey = URLEncoder.encode('["hello-service",""]', 'UTF-8')
+        def encodedEndKey = URLEncoder.encode('["hello-service","\\ufff0"]', 'UTF-8')
+        def response = couchDbClient.get(
+            "/${FunctionalTestConfig.COUCHDB_DATABASE}/_design/stats/_view/by_service?startkey=${encodedStartKey}&endkey=${encodedEndKey}&include_docs=true",
+            ['Authorization': couchDbAuth]
+        )
+
+        then: "query succeeds"
+        response.success
+
+        and: "only hello-service documents are returned (if CouchDB logging is enabled)"
+        if (couchDbEnabled) {
+            def rows = response.json?.rows ?: []
+            println "Found ${rows.size()} hello-service documents"
+
+            rows.each { row ->
+                def doc = row.doc
+                assert doc.service_name == 'hello-service' : "Expected hello-service, got ${doc.service_name}"
+            }
+        }
+    }
+
+    @IgnoreIf({ !instance.environmentReady })
+    def "errors view should only return error documents"() {
+        given: "make a request that will fail (non-existent service)"
+        gatewayClient.get('/env:dev/this-service-does-not-exist/path')
+        Thread.sleep(2000)
+
+        when: "query the errors view"
+        def response = couchDbClient.get(
+            "/${FunctionalTestConfig.COUCHDB_DATABASE}/_design/stats/_view/errors?include_docs=true",
+            ['Authorization': couchDbAuth]
+        )
+
+        then: "query succeeds"
+        response.success
+
+        and: "all returned documents have error flag (if CouchDB logging is enabled)"
+        if (couchDbEnabled) {
+            def rows = response.json?.rows ?: []
+            println "Found ${rows.size()} error documents"
+
+            rows.each { row ->
+                def doc = row.doc
+                assert doc.error == true : "Expected error=true for document ${doc._id}"
+            }
+        }
+    }
 }
