@@ -75,7 +75,16 @@ public class ConsulService {
             path = "/" + path;
         }
 
-        return URI.create(String.format("http://%s:%d%s", address, port, path));
+        // Detect protocol from address (e.g., "https://prospero.jgi.doe.gov")
+        String protocol = "http";
+        if (address.startsWith("https://")) {
+            protocol = "https";
+            address = address.substring(8); // Remove "https://"
+        } else if (address.startsWith("http://")) {
+            address = address.substring(7); // Remove "http://"
+        }
+
+        return URI.create(String.format("%s://%s:%d%s", protocol, address, port, path));
     }
 
     public ServiceEntry getServiceEntry() {

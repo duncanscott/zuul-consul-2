@@ -162,6 +162,7 @@ public class ServiceRegistryEndpoint extends HttpSyncEndpoint {
                 for (ConsulService instance : instances) {
                     ObjectNode instanceNode = instancesArray.addObject();
                     instanceNode.put("id", instance.getId());
+                    instanceNode.put("url.full", instance.getUri().toString());
                     instanceNode.put("address", instance.getAddress());
                     instanceNode.put("port", instance.getPort());
                     instanceNode.put("healthy", instance.isHealthy());
