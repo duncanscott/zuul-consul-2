@@ -168,6 +168,14 @@ curl -u admin:password http://localhost:5994/zuul-consul
 **Step 3: Start the gateway (in a separate terminal)**
 
 ```bash
+# Source the environment script and start the gateway
+source docker/env-couchdb.sh
+./gradlew :app:run
+```
+
+Or set variables manually:
+
+```bash
 export ZUUL_CONSUL_AGENT_HOST=localhost
 export ZUUL_CONSUL_AGENT_PORT=8500
 export ZUUL_DEFAULT_ENVIRONMENT=dev
