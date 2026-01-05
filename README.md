@@ -134,22 +134,85 @@ Nginx listens on `http://localhost:8080` and `https://localhost:8443`, forwardin
 
 ### CouchDB Tests (Manual)
 
-Start CouchDB and run the stats logging tests manually:
+To run CouchDB tests manually and keep the environment running for exploration:
+
+**Step 1: Start the Docker environment with CouchDB**
 
 ```bash
-# Start CouchDB
-docker-compose -f docker/docker-compose.yml --profile couchdb up -d
+cd docker
+docker-compose --profile couchdb up -d
+cd ..
+```
 
-# Wait for initialization, then start gateway with CouchDB enabled
+This starts:
+- Consul (port 8500)
+- CouchDB (port 5994, credentials: admin/password)
+- Sample backend services (hello-service, echo-service)
+- Service registrar (registers services with Consul)
+
+**Step 2: Wait for services to be ready**
+
+```bash
+# Wait for Consul
+until curl -sf http://localhost:8500/v1/status/leader > /dev/null; do sleep 1; done
+echo "Consul is ready"
+
+# Wait for CouchDB
+until curl -sf http://localhost:5994/_up > /dev/null; do sleep 1; done
+echo "CouchDB is ready"
+
+# Verify database exists (created by couchdb-init container)
+curl -u admin:password http://localhost:5994/zuul-consul
+```
+
+**Step 3: Start the gateway (in a separate terminal)**
+
+```bash
+export ZUUL_CONSUL_AGENT_HOST=localhost
+export ZUUL_CONSUL_AGENT_PORT=8500
+export ZUUL_DEFAULT_ENVIRONMENT=dev
+export ZUUL_REACHABLE_ENVIRONMENTS=dev:test
 export ZUUL_COUCHDB_ENABLED=true
 export ZUUL_COUCHDB_URL=http://localhost:5994/zuul-consul
 export ZUUL_COUCHDB_USER=admin
 export ZUUL_COUCHDB_PASSWORD=password
 export ZUUL_BUFFER_REQUEST_BODY=true
-./gradlew :app:run
 
-# In another terminal, run the CouchDB tests
+./gradlew :app:run
+```
+
+**Step 4: Run the CouchDB functional tests (in another terminal)**
+
+```bash
+export ZUUL_COUCHDB_ENABLED=true
 ./gradlew :app:functionalTest --tests "*CouchDbStatsSpec*"
+```
+
+**Step 5: Explore CouchDB data**
+
+```bash
+# View all documents
+curl -u admin:password 'http://localhost:5994/zuul-consul/_all_docs?include_docs=true'
+
+# Query by timestamp range
+curl -u admin:password \
+  'http://localhost:5994/zuul-consul/_design/stats/_view/by_timestamp?include_docs=true'
+
+# Query by service
+curl -u admin:password \
+  'http://localhost:5994/zuul-consul/_design/stats/_view/by_service?startkey=["hello-service",""]&endkey=["hello-service","\ufff0"]&include_docs=true'
+
+# Open Fauxton UI in browser
+open http://localhost:5994/_utils/
+```
+
+**Step 6: Stop the environment**
+
+```bash
+# Stop the gateway with Ctrl+C in its terminal
+
+# Stop Docker containers
+./docker/stop-test-env.sh
 ```
 
 ---
