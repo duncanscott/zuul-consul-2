@@ -526,6 +526,37 @@ Fields with OTel equivalents are logged under both names for compatibility with 
 - Bodies larger than 1MB are skipped to avoid memory issues
 - Request body capture requires explicit opt-in via `ZUUL_BUFFER_REQUEST_BODY=true`
 
+#### CouchDB Views
+
+The gateway automatically creates a design document (`_design/stats`) with views for querying request stats. Views are created on startup if they don't exist.
+
+| View | Key | Description |
+|------|-----|-------------|
+| `by_timestamp` | `timestamp` | Query by time range using `startkey`/`endkey` |
+| `by_service` | `[service_name, timestamp]` | Filter by service, then time range |
+| `by_status` | `[http_response_status_code, timestamp]` | Filter by HTTP status, then time range |
+| `errors` | `timestamp` | Query only error requests (4xx/5xx) by time |
+
+**Query examples:**
+
+```bash
+# Get all requests in a time range
+curl -u admin:password \
+  'http://localhost:5994/zuul-consul/_design/stats/_view/by_timestamp?startkey="2024-01-01T00:00:00"&endkey="2024-01-02T00:00:00"&include_docs=true'
+
+# Get requests for a specific service in a time range
+curl -u admin:password \
+  'http://localhost:5994/zuul-consul/_design/stats/_view/by_service?startkey=["my-service","2024-01-01"]&endkey=["my-service","2024-01-02"]&include_docs=true'
+
+# Get all 500 errors in a time range
+curl -u admin:password \
+  'http://localhost:5994/zuul-consul/_design/stats/_view/by_status?startkey=[500,"2024-01-01"]&endkey=[500,"2024-01-02"]&include_docs=true'
+
+# Get all error requests
+curl -u admin:password \
+  'http://localhost:5994/zuul-consul/_design/stats/_view/errors?include_docs=true'
+```
+
 #### Viewing Data
 
 Access CouchDB Fauxton UI at `http://localhost:5994/_utils/` to browse documents.

@@ -20,6 +20,7 @@ import com.netflix.zuul.netty.server.DirectMemoryMonitor;
 import com.netflix.zuul.netty.server.Server;
 import io.vertx.core.Vertx;
 import org.jadetipi.zuulconsul.consul.ConsulServiceRegistry;
+import org.jadetipi.zuulconsul.couchdb.CouchDbInitializer;
 import org.jadetipi.zuulconsul.endpoints.ServiceRegistryEndpoint;
 import org.jadetipi.zuulconsul.filters.ContextRootFilter;
 import org.jadetipi.zuulconsul.origins.ConsulOriginManager;
@@ -81,6 +82,9 @@ public class ZuulConsulServer {
         try {
             // Load configuration
             ConfigurationManager.loadCascadedPropertiesFromResources("application");
+
+            // Initialize CouchDB views if enabled
+            new CouchDbInitializer().initialize();
 
             // Start Consul watches for real-time service updates (with fallback refresh)
             long refreshIntervalMs = EnvironmentConfig.getRefreshIntervalMs();
