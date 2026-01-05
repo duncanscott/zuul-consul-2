@@ -110,6 +110,13 @@ class CouchDbStatsFilter extends HttpOutboundSyncFilter {
     private void postToCouchDb(HttpResponseMessage response) {
         SessionContext context = response.getContext()
 
+        // Skip logging for root path requests (no service routed)
+        String serviceName = context.get(CONSUL_SERVICE_NAME) as String
+        if (!serviceName) {
+            log.trace("No service name - skipping CouchDB logging for root path request")
+            return
+        }
+
         // Get trace context
         String traceId = context.get(RequestIdFilter.TRACE_ID) as String
         String spanId = context.get(RequestIdFilter.SPAN_ID) as String

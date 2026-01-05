@@ -169,9 +169,9 @@ class CouchDbStatsSpec extends Specification {
         gatewayClient.get('/env:dev/hello-service/info')
         Thread.sleep(2000)
 
-        when: "fetch the most recent document"
+        when: "fetch the most recent document by timestamp"
         def response = couchDbClient.get(
-            "/${FunctionalTestConfig.COUCHDB_DATABASE}/_all_docs?include_docs=true&descending=true&limit=1",
+            "/${FunctionalTestConfig.COUCHDB_DATABASE}/_design/stats/_view/by_timestamp?descending=true&limit=1&include_docs=true",
             ['Authorization': couchDbAuth]
         )
 
@@ -218,9 +218,9 @@ class CouchDbStatsSpec extends Specification {
         gatewayClient.get('/env:test/echo-service/echo')
         Thread.sleep(2000)
 
-        when: "fetch the most recent document"
+        when: "fetch the most recent document by timestamp"
         def response = couchDbClient.get(
-            "/${FunctionalTestConfig.COUCHDB_DATABASE}/_all_docs?include_docs=true&descending=true&limit=1",
+            "/${FunctionalTestConfig.COUCHDB_DATABASE}/_design/stats/_view/by_timestamp?descending=true&limit=1&include_docs=true",
             ['Authorization': couchDbAuth]
         )
 
@@ -231,7 +231,7 @@ class CouchDbStatsSpec extends Specification {
         if (couchDbEnabled && response.json?.rows?.size() > 0) {
             def doc = response.json.rows[0].doc
 
-            // Service was routed to echo-service
+            // Most recent document should be the echo-service request
             assert doc['service.name'] == 'echo-service' : "Expected echo-service, got ${doc['service.name']}"
 
             // Labels were parsed (env:test)
@@ -247,9 +247,9 @@ class CouchDbStatsSpec extends Specification {
         gatewayClient.get('/env:dev/non-existent-service/path')
         Thread.sleep(2000)
 
-        when: "fetch the most recent document"
+        when: "fetch the most recent document by timestamp"
         def response = couchDbClient.get(
-            "/${FunctionalTestConfig.COUCHDB_DATABASE}/_all_docs?include_docs=true&descending=true&limit=1",
+            "/${FunctionalTestConfig.COUCHDB_DATABASE}/_design/stats/_view/by_timestamp?descending=true&limit=1&include_docs=true",
             ['Authorization': couchDbAuth]
         )
 
@@ -275,9 +275,9 @@ class CouchDbStatsSpec extends Specification {
         gatewayClient.get('/env:dev/hello-service/health')
         Thread.sleep(2000)
 
-        when: "fetch the most recent document"
+        when: "fetch the most recent document by timestamp"
         def response = couchDbClient.get(
-            "/${FunctionalTestConfig.COUCHDB_DATABASE}/_all_docs?include_docs=true&descending=true&limit=1",
+            "/${FunctionalTestConfig.COUCHDB_DATABASE}/_design/stats/_view/by_timestamp?descending=true&limit=1&include_docs=true",
             ['Authorization': couchDbAuth]
         )
 
@@ -306,9 +306,9 @@ class CouchDbStatsSpec extends Specification {
         gatewayClient.get('/env:dev/hello-service/version')
         Thread.sleep(2000)
 
-        when: "fetch the most recent document to get its span ID"
+        when: "fetch the most recent document by timestamp to get its span ID"
         def allDocsResponse = couchDbClient.get(
-            "/${FunctionalTestConfig.COUCHDB_DATABASE}/_all_docs?include_docs=true&descending=true&limit=1",
+            "/${FunctionalTestConfig.COUCHDB_DATABASE}/_design/stats/_view/by_timestamp?descending=true&limit=1&include_docs=true",
             ['Authorization': couchDbAuth]
         )
 
