@@ -110,19 +110,24 @@ class CouchDbStatsFilter extends HttpOutboundSyncFilter {
     private void postToCouchDb(HttpResponseMessage response) {
         SessionContext context = response.getContext()
 
-        // Get trace ID for document _id
+        // Get trace context
         String traceId = context.get(RequestIdFilter.TRACE_ID) as String
+        String spanId = context.get(RequestIdFilter.SPAN_ID) as String
+
+        // Generate fallback IDs if not available
         if (!traceId) {
-            // Generate a UUID if no trace ID available
             traceId = UUID.randomUUID().toString().replace('-', '')
+        }
+        if (!spanId) {
+            spanId = UUID.randomUUID().toString().replace('-', '').substring(0, 16)
         }
 
         // Build the document
-        Map<String, Object> doc = buildDocument(context, response, traceId)
+        Map<String, Object> doc = buildDocument(context, response, traceId, spanId)
         String json = objectMapper.writeValueAsString(doc)
 
-        // Use PUT with trace ID as document _id for easy lookup
-        String docUrl = "${couchDbUrl}/${traceId}"
+        // Use PUT with span ID as document _id (unique per operation)
+        String docUrl = "${couchDbUrl}/${spanId}"
 
         // Build the request
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
@@ -141,7 +146,7 @@ class CouchDbStatsFilter extends HttpOutboundSyncFilter {
         httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
             .thenAccept { resp ->
                 if (resp.statusCode() >= 200 && resp.statusCode() < 300) {
-                    log.trace("Posted stats to CouchDB: {} -> {}", traceId, resp.statusCode())
+                    log.trace("Posted stats to CouchDB: {} -> {}", spanId, resp.statusCode())
                 } else {
                     log.warn("CouchDB returned status {}: {}", resp.statusCode(), resp.body())
                 }
@@ -157,15 +162,18 @@ class CouchDbStatsFilter extends HttpOutboundSyncFilter {
      * <p>
      * Field naming follows Elastic Common Schema (ECS) and OpenTelemetry conventions.
      * Fields use dots (.) as separators per ECS conventions.
+     * <p>
+     * The document _id is set to span.id (unique per operation) rather than trace.id
+     * (which is shared across all spans in a distributed trace).
      *
      * @see <a href="https://www.elastic.co/guide/en/ecs/current/ecs-field-reference.html">ECS Field Reference</a>
      * @see <a href="https://opentelemetry.io/docs/specs/semconv/http/http-spans/">OTel HTTP Semantic Conventions</a>
      */
-    private Map<String, Object> buildDocument(SessionContext context, HttpResponseMessage response, String traceId) {
+    private Map<String, Object> buildDocument(SessionContext context, HttpResponseMessage response, String traceId, String spanId) {
         Map<String, Object> doc = new LinkedHashMap<>()
 
-        // Document metadata
-        doc.put('_id', traceId)
+        // Document metadata - use span.id as _id (unique per operation)
+        doc.put('_id', spanId)
 
         // Timestamp (ECS standard field)
         doc.put('@timestamp', ISO_FORMATTER.format(Instant.now()))
@@ -173,21 +181,7 @@ class CouchDbStatsFilter extends HttpOutboundSyncFilter {
 
         // Trace context (ECS trace fields)
         doc.put('trace.id', traceId)
-
-        String spanId = context.get(RequestIdFilter.SPAN_ID) as String
-        if (spanId) {
-            doc.put('span.id', spanId)
-        }
-
-        // Custom trace fields for call chain tracking (using underscores as not in ECS)
-        String parentId = context.get(RequestIdFilter.PARENT_ID) as String
-        String rootId = context.get(RequestIdFilter.ROOT_ID) as String
-        if (parentId) {
-            doc.put('zuul_consul_parent_id', parentId)
-        }
-        if (rootId) {
-            doc.put('zuul_consul_root_id', rootId)
-        }
+        doc.put('span.id', spanId)
 
         // Service info (ECS service fields)
         String serviceName = context.get(CONSUL_SERVICE_NAME) as String

@@ -21,7 +21,7 @@ import spock.lang.Requires
  * Run with: ./gradlew :app:functionalTest --tests CouchDbStatsSpec
  *
  * Field names follow Elastic Common Schema (ECS) and OpenTelemetry conventions.
- * Document _id is set to trace.id for easy lookup by trace ID.
+ * Document _id is set to span.id (unique per operation).
  */
 @Stepwise
 class CouchDbStatsSpec extends Specification {
@@ -188,8 +188,9 @@ class CouchDbStatsSpec extends Specification {
 
             // Trace context (ECS trace fields)
             assert doc['trace.id'] != null : "Missing trace.id"
-            // Document _id should match trace.id
-            assert doc._id == doc['trace.id'] : "Document _id should match trace.id"
+            assert doc['span.id'] != null : "Missing span.id"
+            // Document _id should match span.id (unique per operation)
+            assert doc._id == doc['span.id'] : "Document _id should match span.id"
 
             // Service info (ECS)
             assert doc['service.name'] != null : "Missing service.name"
@@ -297,33 +298,33 @@ class CouchDbStatsSpec extends Specification {
         }
     }
 
-    // ==================== Document ID by Trace ID ====================
+    // ==================== Document Lookup by Span ID ====================
 
     @IgnoreIf({ !instance.environmentReady })
-    def "document can be looked up by trace ID"() {
-        given: "make a request and get trace ID from response"
+    def "document can be looked up by span ID"() {
+        given: "make a request to generate a document"
         gatewayClient.get('/env:dev/hello-service/version')
         Thread.sleep(2000)
 
-        when: "fetch the most recent document to get its trace ID"
+        when: "fetch the most recent document to get its span ID"
         def allDocsResponse = couchDbClient.get(
             "/${FunctionalTestConfig.COUCHDB_DATABASE}/_all_docs?include_docs=true&descending=true&limit=1",
             ['Authorization': couchDbAuth]
         )
 
-        then: "we can look up the document directly by trace ID"
+        then: "we can look up the document directly by span ID"
         if (couchDbEnabled && allDocsResponse.json?.rows?.size() > 0) {
             def doc = allDocsResponse.json.rows[0].doc
-            String traceId = doc['trace.id']
+            String spanId = doc['span.id']
 
-            // Fetch document directly by trace ID
+            // Fetch document directly by span ID (document _id = span.id)
             def directResponse = couchDbClient.get(
-                "/${FunctionalTestConfig.COUCHDB_DATABASE}/${traceId}",
+                "/${FunctionalTestConfig.COUCHDB_DATABASE}/${spanId}",
                 ['Authorization': couchDbAuth]
             )
 
-            assert directResponse.success : "Should be able to fetch document by trace ID"
-            assert directResponse.json['trace.id'] == traceId : "Retrieved document should have same trace.id"
+            assert directResponse.success : "Should be able to fetch document by span ID"
+            assert directResponse.json['span.id'] == spanId : "Retrieved document should have same span.id"
         }
     }
 

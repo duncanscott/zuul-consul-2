@@ -38,10 +38,8 @@ class StatsFilter extends HttpOutboundSyncFilter {
 
     // List of MDC keys we set (for cleanup)
     private static final List<String> MDC_KEYS = [
-        // Trace IDs (set by RequestIdFilter, cleared here)
-        'zuul_consul_id',
-        'zuul_consul_parent_id',
-        'zuul_consul_root_id',
+        // Trace context (set by RequestIdFilter, cleared here)
+        'trace.id',
         'span.id',
         // HTTP fields (ECS/OTel-compatible)
         'http.response.status_code',

@@ -41,11 +41,6 @@ class ConsulRoutingFilter extends HttpInboundSyncFilter {
     static final String HEADER_TRACEPARENT = 'traceparent'
     static final String HEADER_TRACESTATE = 'tracestate'
 
-    // Legacy tracing header names (kept for backward compatibility)
-    static final String HEADER_ZUUL_CONSUL_ID = 'X-Zuul-Consul-Id'
-    static final String HEADER_PARENT_ZUUL_CONSUL_ID = 'X-Parent-Zuul-Consul-Id'
-    static final String HEADER_ROOT_ZUUL_CONSUL_ID = 'X-Root-Zuul-Consul-Id'
-
     private static final ObjectMapper objectMapper = new ObjectMapper()
 
     @Override
@@ -109,10 +104,11 @@ class ConsulRoutingFilter extends HttpInboundSyncFilter {
     }
 
     /**
-     * Add tracing headers for request correlation.
+     * Add W3C Trace Context headers for distributed tracing.
      * <p>
-     * Sets W3C Trace Context headers (traceparent) for distributed tracing,
-     * plus legacy X-Zuul-Consul-* headers for backward compatibility.
+     * Sets traceparent and tracestate headers per the W3C Trace Context specification.
+     *
+     * @see <a href="https://www.w3.org/TR/trace-context/">W3C Trace Context</a>
      */
     private void addTracingHeaders(HttpRequestMessage request) {
         def context = request.getContext()
@@ -136,23 +132,6 @@ class ConsulRoutingFilter extends HttpInboundSyncFilter {
         String incomingTracestate = request.getHeaders().getFirst(HEADER_TRACESTATE)
         if (incomingTracestate) {
             request.getHeaders().set(HEADER_TRACESTATE, incomingTracestate)
-        }
-
-        // Legacy headers for backward compatibility
-        request.getHeaders().set(HEADER_ZUUL_CONSUL_ID, traceId)
-
-        // Check if this is a nested request (coming through another Zuul instance)
-        String incomingId = request.getHeaders().getFirst(HEADER_ZUUL_CONSUL_ID)
-        String incomingRootId = request.getHeaders().getFirst(HEADER_ROOT_ZUUL_CONSUL_ID)
-
-        if (incomingId != null && incomingId != traceId) {
-            request.getHeaders().set(HEADER_PARENT_ZUUL_CONSUL_ID, incomingId)
-        }
-
-        if (incomingRootId != null) {
-            request.getHeaders().set(HEADER_ROOT_ZUUL_CONSUL_ID, incomingRootId)
-        } else {
-            request.getHeaders().set(HEADER_ROOT_ZUUL_CONSUL_ID, traceId)
         }
 
         log.trace("Trace headers set: traceparent={}", traceparent)

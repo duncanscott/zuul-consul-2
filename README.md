@@ -535,13 +535,11 @@ Each request creates a JSON document using [Elastic Common Schema (ECS)](https:/
 
 ```json
 {
-  "_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "_id": "b7ad6b7169203331",
   "@timestamp": "2026-01-04T10:30:00-08:00",
   "type": "request_stats",
   "trace.id": "4bf92f3577b34da6a3ce929d0e0e4736",
   "span.id": "b7ad6b7169203331",
-  "zuul_consul_parent_id": "a1b2c3d4e5f67890",
-  "zuul_consul_root_id": "4bf92f3577b34da6a3ce929d0e0e4736",
   "service.name": "my-service",
   "labels.team": "my",
   "labels.env": "dev",
@@ -563,19 +561,17 @@ Each request creates a JSON document using [Elastic Common Schema (ECS)](https:/
 ```
 
 **Key features:**
-- Document `_id` is set to `trace.id` for easy lookup by trace ID from logs
+- Document `_id` is set to `span.id` (unique per operation, avoids conflicts in distributed traces)
 - Field names use dots (`.`) per ECS conventions
 - Body content is stored as JSON objects (not escaped strings)
 
 | Field | Standard | Description |
 |-------|----------|-------------|
-| `_id` | CouchDB | Document ID, set to trace.id for easy lookup |
+| `_id` | CouchDB | Document ID, set to span.id (unique per operation) |
 | `@timestamp` | ECS | ISO8601 formatted request timestamp |
 | `type` | — | Always `request_stats` (for CouchDB views) |
-| `trace.id` | ECS | W3C trace ID (same as `_id`) |
-| `span.id` | ECS | W3C span ID |
-| `zuul_consul_parent_id` | custom | Parent request ID (for nested calls) |
-| `zuul_consul_root_id` | custom | Root request ID in call chain |
+| `trace.id` | ECS | W3C trace ID (shared across distributed trace) |
+| `span.id` | ECS | W3C span ID (same as `_id`) |
 | `service.name` | ECS | Target service name from Consul |
 | `labels.team` | ECS | Team prefix from service name (before first `-`) |
 | `labels.*` | ECS | Dynamic labels from URL tags (e.g., `labels.env`, `labels.version`) |
@@ -640,10 +636,17 @@ Query all documents:
 curl -u admin:password http://localhost:5994/zuul-consul/_all_docs?include_docs=true
 ```
 
-**Looking up by trace ID:** Each document's `_id` matches its `trace.id`, so you can look up a request directly using the trace ID from logs:
+**Looking up by span ID:** Each document's `_id` matches its `span.id`, so you can look up a request directly using the span ID from logs:
 ```bash
-# Get document by trace ID
-curl -u admin:password http://localhost:5994/zuul-consul/4bf92f3577b34da6a3ce929d0e0e4736
+# Get document by span ID
+curl -u admin:password http://localhost:5994/zuul-consul/b7ad6b7169203331
+```
+
+**Finding all spans in a trace:** Use Mango query to find all documents with the same `trace.id`:
+```bash
+curl -u admin:password -X POST http://localhost:5994/zuul-consul/_find \
+  -H "Content-Type: application/json" \
+  -d '{"selector": {"trace.id": "4bf92f3577b34da6a3ce929d0e0e4736"}}'
 ```
 
 The stats are posted asynchronously to avoid impacting request latency.
@@ -794,22 +797,25 @@ OTEL_SERVICE_NAME=zuul-consul
 OTEL_EXPORTER_OTLP_ENDPOINT=http://your-apm-server:4317
 ```
 
-The `zuul_consul_id` appears in all log messages and correlates with APM traces.
+The `trace.id` appears in all log messages and correlates with APM traces.
 
-### Legacy Headers & MDC Fields
+### W3C Trace Context Headers
 
-For backward compatibility with existing log parsing, these headers and MDC fields are used:
+Zuul Consul uses W3C Trace Context headers for distributed tracing:
 
-| Header | MDC Field | Description |
-|--------|-----------|-------------|
-| `X-Zuul-Consul-Id` | `zuul_consul_id` | Request trace ID (W3C-compatible) |
-| `X-Parent-Zuul-Consul-Id` | `zuul_consul_parent_id` | Parent trace ID (for nested calls) |
-| `X-Root-Zuul-Consul-Id` | `zuul_consul_root_id` | Root trace ID in the call chain |
+| Header | Description |
+|--------|-------------|
+| `traceparent` | W3C trace context: `{version}-{trace-id}-{span-id}-{flags}` |
+| `tracestate` | Optional vendor-specific trace data (propagated if present) |
 
-Additional MDC fields for structured logging (matching original Stats.groovy):
+### MDC Fields
+
+MDC fields for structured logging (ECS/OTel naming):
 
 | MDC Field | OTel Equivalent | Description |
 |-----------|-----------------|-------------|
+| `trace.id` | (same) | W3C trace ID (32 hex chars) |
+| `span.id` | (same) | W3C span ID (16 hex chars) |
 | `http.response.status_code` | (same) | HTTP response status code |
 | `http.request.method` | (same) | HTTP method |
 | `url.path` | (same) | Request path |

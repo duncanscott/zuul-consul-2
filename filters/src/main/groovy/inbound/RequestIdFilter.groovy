@@ -18,11 +18,11 @@ import java.util.concurrent.ThreadLocalRandom
  *   <li>Otherwise, generates a W3C-compatible 32-hex-char trace ID</li>
  * </ul>
  * <p>
- * The trace ID is:
+ * The trace context is:
  * <ul>
- *   <li>Stored in MDC as 'trace.id' for inclusion in all log messages</li>
+ *   <li>Stored in MDC as 'trace.id' and 'span.id' for inclusion in all log messages</li>
  *   <li>Stored in the session context for use by other filters</li>
- *   <li>Used by ConsulRoutingFilter for W3C traceparent headers</li>
+ *   <li>Used by ConsulRoutingFilter for W3C traceparent header propagation</li>
  * </ul>
  * <p>
  * W3C Trace Context format:
@@ -37,19 +37,15 @@ import java.util.concurrent.ThreadLocalRandom
 @Slf4j
 class RequestIdFilter extends HttpInboundSyncFilter {
 
-    // Context keys (using old zuul-consul naming for compatibility with log parsing)
-    static final String TRACE_ID = 'zuul_consul_id'
+    // Context keys (ECS/OTel naming)
+    static final String TRACE_ID = 'trace.id'
     static final String SPAN_ID = 'span.id'
     static final String TRACE_FLAGS = 'trace.flags'
     static final String OTEL_ACTIVE = 'otel.active'
-    static final String PARENT_ID = 'zuul_consul_parent_id'
-    static final String ROOT_ID = 'zuul_consul_root_id'
 
-    // MDC keys (matching old Stats.groovy for log parsing compatibility)
-    static final String MDC_TRACE_ID = 'zuul_consul_id'
+    // MDC keys (ECS naming for structured logging)
+    static final String MDC_TRACE_ID = 'trace.id'
     static final String MDC_SPAN_ID = 'span.id'
-    static final String MDC_PARENT_ID = 'zuul_consul_parent_id'
-    static final String MDC_ROOT_ID = 'zuul_consul_root_id'
 
     // W3C Trace Context constants
     static final String TRACEPARENT_HEADER = 'traceparent'
@@ -124,32 +120,9 @@ class RequestIdFilter extends HttpInboundSyncFilter {
         context.set(TRACE_FLAGS, traceFlags)
         context.set(OTEL_ACTIVE, otelActive)
 
-        // Handle parent and root IDs from incoming headers (for nested requests through another Zuul)
-        String incomingId = request.getHeaders().getFirst('X-Zuul-Consul-Id')
-        String incomingRootId = request.getHeaders().getFirst('X-Root-Zuul-Consul-Id')
-
-        String parentId = null
-        String rootId = traceId  // Default root is this request's ID
-
-        if (incomingId != null && incomingId != traceId) {
-            parentId = incomingId
-        }
-        if (incomingRootId != null) {
-            rootId = incomingRootId
-        }
-
-        context.set(PARENT_ID, parentId)
-        context.set(ROOT_ID, rootId)
-
-        // Add to MDC for logging (zuul_consul_id correlates with log aggregation)
+        // Add to MDC for logging (ECS field names)
         MDC.put(MDC_TRACE_ID, traceId)
         MDC.put(MDC_SPAN_ID, spanId)
-        if (parentId) {
-            MDC.put(MDC_PARENT_ID, parentId)
-        }
-        if (rootId) {
-            MDC.put(MDC_ROOT_ID, rootId)
-        }
 
         return request
     }
