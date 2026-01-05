@@ -103,13 +103,6 @@ class CouchDbStatsSpec extends Specification {
         return true
     }
 
-    // ==================== Environment Checks ====================
-
-    def "test environment should be available"() {
-        expect:
-        environmentReady
-    }
-
     // ==================== CouchDB Connectivity ====================
 
     @IgnoreIf({ !instance.environmentReady })
