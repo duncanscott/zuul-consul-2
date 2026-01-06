@@ -76,14 +76,14 @@ This document lists all fields available from Consul for each service instance a
 
 The `url.full` field is computed using the following protocol detection priority:
 
-1. **`meta["protocol"]`** - If the service metadata contains a `protocol` key, use its value (e.g., `"https"`, `"http"`)
+1. **`meta["scheme"]`** - If the service metadata contains a `scheme` key, use its value (e.g., `"https"`, `"http"`). This aligns with Spring Cloud's `spring.cloud.consul.discovery.scheme`.
 2. **Address prefix** - If the `address` field starts with `https://` or `http://`, use that protocol
 3. **Default** - Use `http`
 
 ### Examples
 
-| meta.protocol | address | Resulting protocol |
-|---------------|---------|-------------------|
+| meta.scheme | address | Resulting protocol |
+|-------------|---------|-------------------|
 | `"https"` | `prospero.jgi.doe.gov` | `https` |
 | `"https"` | `http://prospero.jgi.doe.gov` | `https` (meta takes precedence) |
 | (not set) | `https://prospero.jgi.doe.gov` | `https` |

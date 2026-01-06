@@ -306,20 +306,20 @@ Backend services should be registered in Consul with appropriate tags:
 
 The gateway determines the protocol (HTTP or HTTPS) to use when connecting to backend services using the following priority:
 
-1. **`meta.protocol`** — If the service metadata contains a `protocol` key, use its value (e.g., `"https"`, `"http"`)
+1. **`meta.scheme`** — If the service metadata contains a `scheme` key, use its value (e.g., `"https"`, `"http"`). This aligns with Spring Cloud's `spring.cloud.consul.discovery.scheme`.
 2. **Address prefix** — If the `Address` field starts with `https://` or `http://`, use that protocol
 3. **Default** — Use `http`
 
 #### Examples
 
-| meta.protocol | Address | Resulting Protocol |
-|---------------|---------|-------------------|
+| meta.scheme | Address | Resulting Protocol |
+|-------------|---------|-------------------|
 | `"https"` | `prospero.example.com` | `https` |
 | `"https"` | `http://prospero.example.com` | `https` (meta takes precedence) |
 | (not set) | `https://prospero.example.com` | `https` |
 | (not set) | `prospero.example.com` | `http` (default) |
 
-#### Registration with Protocol in Metadata
+#### Registration with Scheme in Metadata
 
 ```json
 {
@@ -329,7 +329,7 @@ The gateway determines the protocol (HTTP or HTTPS) to use when connecting to ba
   "Port": 443,
   "Tags": ["env:prd", "context-root!/api"],
   "Meta": {
-    "protocol": "https"
+    "scheme": "https"
   },
   "Check": {
     "HTTP": "https://secure.example.com:443/health",
