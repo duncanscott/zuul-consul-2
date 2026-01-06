@@ -161,6 +161,7 @@ public class ServiceRegistryEndpoint extends HttpSyncEndpoint {
                 ArrayNode instancesArray = servicesNode.putArray(serviceName);
                 for (ConsulService instance : instances) {
                     ObjectNode instanceNode = instancesArray.addObject();
+                    instanceNode.put("service", instance.getName());
                     instanceNode.put("id", instance.getId());
                     instanceNode.put("url.full", instance.getUri().toString());
                     instanceNode.put("address", instance.getAddress());
