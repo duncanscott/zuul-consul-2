@@ -164,8 +164,7 @@ public class ServiceRegistryEndpoint extends HttpSyncEndpoint {
                     instanceNode.put("service", instance.getName());
                     instanceNode.put("id", instance.getId());
                     instanceNode.put("url.full", instance.getUri().toString());
-                    instanceNode.put("service.address", instance.getService().getAddress());
-                    instanceNode.put("address", instance.getAddress());
+                    instanceNode.put("address", instance.getService().getAddress());
                     instanceNode.put("port", instance.getPort());
                     instanceNode.put("healthy", instance.isHealthy());
 
@@ -176,11 +175,11 @@ public class ServiceRegistryEndpoint extends HttpSyncEndpoint {
                     instanceNode.put("node.address", node.getAddress());
                     instanceNode.put("datacenter", node.getDatacenter());
 
-                    // Node metadata
-                    var nodeMeta = node.getNodeMeta();
-                    if (nodeMeta != null && !nodeMeta.isEmpty()) {
-                        ObjectNode metaNode = instanceNode.putObject("node.meta");
-                        nodeMeta.forEach(metaNode::put);
+                    // Service metadata
+                    var meta = instance.getService().getMeta();
+                    if (meta != null && !meta.isEmpty()) {
+                        ObjectNode metaNode = instanceNode.putObject("meta");
+                        meta.forEach(metaNode::put);
                     }
 
                     ArrayNode tagsArray = instanceNode.putArray("tags");

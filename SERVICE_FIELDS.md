@@ -9,11 +9,10 @@ This document lists all fields available from Consul for each service instance a
 | **Service** | | | |
 | Service.getName() | service | Service name | Yes |
 | Service.getId() | id | Service instance ID | Yes |
-| Service.getAddress() | service.address | Raw service address from Consul (may include protocol, e.g., `https://host`) | Yes |
-| (parsed) | address | Parsed hostname only (protocol stripped) | Yes |
+| Service.getAddress() | address | Service address from Consul (may include protocol, e.g., `https://host`) | Yes |
 | Service.getPort() | port | Service port | Yes |
 | Service.getTags() | tags | Service tags list | Yes |
-| Service.getMeta() | meta | Arbitrary key-value metadata | No |
+| Service.getMeta() | meta | Service metadata map | Yes |
 | Service.getCreateIndex() | createIndex | Internal Consul index when created | No |
 | Service.getModifyIndex() | modifyIndex | Internal Consul index when modified | No |
 | **Node** | | | |
@@ -21,7 +20,7 @@ This document lists all fields available from Consul for each service instance a
 | Node.getId() | node.id | Node UUID | Yes |
 | Node.getAddress() | node.address | Node IP address | Yes |
 | Node.getDatacenter() | datacenter | Consul datacenter | Yes |
-| Node.getNodeMeta() | node.meta | Node metadata map | Yes |
+| Node.getNodeMeta() | node.meta | Node metadata map | No |
 | Node.getLanAddress() | node.lanAddress | Node LAN address | No |
 | Node.getWanAddress() | node.wanAddress | Node WAN address | No |
 | **Health Checks** | | | |
@@ -48,17 +47,14 @@ This document lists all fields available from Consul for each service instance a
           "service": "dw-freezer-empty-containers",
           "id": "dw-freezer-empty-containers:prd",
           "url.full": "https://prospero.jgi.doe.gov:443/ws/freezer-empty-containers",
-          "service.address": "https://prospero.jgi.doe.gov",
-          "address": "prospero.jgi.doe.gov",
+          "address": "https://prospero.jgi.doe.gov",
           "port": 443,
           "healthy": true,
           "node": "prospero",
           "node.id": "9d0f85b8-ff11-1ace-e6ee-29391e6e9d40",
           "node.address": "128.3.122.17",
           "datacenter": "jgi",
-          "node.meta": {
-            "consul-network-segment": ""
-          },
+          "meta": {},
           "tags": [
             "context-root!ws/freezer-empty-containers",
             "env:prd",
@@ -73,8 +69,8 @@ This document lists all fields available from Consul for each service instance a
 
 ## Summary
 
-- **14 fields** currently published at `/`
-- **10 fields** available but not published
+- **13 fields** currently published at `/`
+- **11 fields** available but not published
 
 ## Data Sources
 
