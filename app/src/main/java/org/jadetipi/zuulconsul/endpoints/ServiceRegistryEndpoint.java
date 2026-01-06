@@ -167,7 +167,13 @@ public class ServiceRegistryEndpoint extends HttpSyncEndpoint {
                     instanceNode.put("address", instance.getAddress());
                     instanceNode.put("port", instance.getPort());
                     instanceNode.put("healthy", instance.isHealthy());
-                    instanceNode.put("node", instance.getNodeName());
+
+                    // Node info
+                    var node = instance.getServiceEntry().getNode();
+                    instanceNode.put("node", node.getName());
+                    instanceNode.put("node.id", node.getId());
+                    instanceNode.put("node.address", node.getAddress());
+                    instanceNode.put("datacenter", node.getDatacenter());
 
                     ArrayNode tagsArray = instanceNode.putArray("tags");
                     instance.getTags().forEach(tagsArray::add);
