@@ -77,12 +77,15 @@ public class ConsulService {
 
         // Determine protocol with priority:
         // 1. meta["scheme"] (e.g., "https") - aligns with spring.cloud.consul.discovery.scheme
-        // 2. Address prefix (e.g., "https://host")
-        // 3. Default to "http"
+        // 2. meta["secure"] == "true" - use https if secure flag is set
+        // 3. Address prefix (e.g., "https://host")
+        // 4. Default to "http"
         String protocol = "http";
         var meta = service.getMeta();
         if (meta != null && meta.containsKey("scheme")) {
             protocol = meta.get("scheme");
+        } else if (meta != null && "true".equalsIgnoreCase(meta.get("secure"))) {
+            protocol = "https";
         } else if (address.startsWith("https://")) {
             protocol = "https";
             address = address.substring(8); // Remove "https://"

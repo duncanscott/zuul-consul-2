@@ -77,17 +77,20 @@ This document lists all fields available from Consul for each service instance a
 The `url.full` field is computed using the following protocol detection priority:
 
 1. **`meta["scheme"]`** - If the service metadata contains a `scheme` key, use its value (e.g., `"https"`, `"http"`). This aligns with Spring Cloud's `spring.cloud.consul.discovery.scheme`.
-2. **Address prefix** - If the `address` field starts with `https://` or `http://`, use that protocol
-3. **Default** - Use `http`
+2. **`meta["secure"]`** - If the service metadata contains `"secure": "true"`, use `https`. This provides Spring Cloud compatibility via `spring.cloud.consul.discovery.metadata.secure=true`.
+3. **Address prefix** - If the `address` field starts with `https://` or `http://`, use that protocol
+4. **Default** - Use `http`
 
 ### Examples
 
-| meta.scheme | address | Resulting protocol |
-|-------------|---------|-------------------|
-| `"https"` | `prospero.jgi.doe.gov` | `https` |
-| `"https"` | `http://prospero.jgi.doe.gov` | `https` (meta takes precedence) |
-| (not set) | `https://prospero.jgi.doe.gov` | `https` |
-| (not set) | `prospero.jgi.doe.gov` | `http` (default) |
+| meta.scheme | meta.secure | address | Resulting protocol |
+|-------------|-------------|---------|-------------------|
+| `"https"` | (any) | `prospero.jgi.doe.gov` | `https` |
+| `"https"` | (any) | `http://prospero.jgi.doe.gov` | `https` (scheme takes precedence) |
+| (not set) | `"true"` | `prospero.jgi.doe.gov` | `https` |
+| (not set) | `"false"` | `prospero.jgi.doe.gov` | `http` (default) |
+| (not set) | (not set) | `https://prospero.jgi.doe.gov` | `https` |
+| (not set) | (not set) | `prospero.jgi.doe.gov` | `http` (default) |
 
 ## Data Sources
 

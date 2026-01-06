@@ -307,17 +307,20 @@ Backend services should be registered in Consul with appropriate tags:
 The gateway determines the protocol (HTTP or HTTPS) to use when connecting to backend services using the following priority:
 
 1. **`meta.scheme`** — If the service metadata contains a `scheme` key, use its value (e.g., `"https"`, `"http"`). This aligns with Spring Cloud's `spring.cloud.consul.discovery.scheme`.
-2. **Address prefix** — If the `Address` field starts with `https://` or `http://`, use that protocol
-3. **Default** — Use `http`
+2. **`meta.secure`** — If the service metadata contains `"secure": "true"`, use `https`. This provides Spring Cloud compatibility via `spring.cloud.consul.discovery.metadata.secure=true`.
+3. **Address prefix** — If the `Address` field starts with `https://` or `http://`, use that protocol
+4. **Default** — Use `http`
 
 #### Examples
 
-| meta.scheme | Address | Resulting Protocol |
-|-------------|---------|-------------------|
-| `"https"` | `prospero.example.com` | `https` |
-| `"https"` | `http://prospero.example.com` | `https` (meta takes precedence) |
-| (not set) | `https://prospero.example.com` | `https` |
-| (not set) | `prospero.example.com` | `http` (default) |
+| meta.scheme | meta.secure | Address | Resulting Protocol |
+|-------------|-------------|---------|-------------------|
+| `"https"` | (any) | `prospero.example.com` | `https` |
+| `"https"` | (any) | `http://prospero.example.com` | `https` (scheme takes precedence) |
+| (not set) | `"true"` | `prospero.example.com` | `https` |
+| (not set) | `"false"` | `prospero.example.com` | `http` (default) |
+| (not set) | (not set) | `https://prospero.example.com` | `https` |
+| (not set) | (not set) | `prospero.example.com` | `http` (default) |
 
 #### Registration with Scheme in Metadata
 
