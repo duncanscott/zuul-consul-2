@@ -302,6 +302,60 @@ Backend services should be registered in Consul with appropriate tags:
 }
 ```
 
+### Service Protocol Detection
+
+The gateway determines the protocol (HTTP or HTTPS) to use when connecting to backend services using the following priority:
+
+1. **`meta.protocol`** — If the service metadata contains a `protocol` key, use its value (e.g., `"https"`, `"http"`)
+2. **Address prefix** — If the `Address` field starts with `https://` or `http://`, use that protocol
+3. **Default** — Use `http`
+
+#### Examples
+
+| meta.protocol | Address | Resulting Protocol |
+|---------------|---------|-------------------|
+| `"https"` | `prospero.example.com` | `https` |
+| `"https"` | `http://prospero.example.com` | `https` (meta takes precedence) |
+| (not set) | `https://prospero.example.com` | `https` |
+| (not set) | `prospero.example.com` | `http` (default) |
+
+#### Registration with Protocol in Metadata
+
+```json
+{
+  "Name": "my-secure-service",
+  "ID": "my-secure-service-1",
+  "Address": "secure.example.com",
+  "Port": 443,
+  "Tags": ["env:prd", "context-root!/api"],
+  "Meta": {
+    "protocol": "https"
+  },
+  "Check": {
+    "HTTP": "https://secure.example.com:443/health",
+    "Interval": "10s"
+  }
+}
+```
+
+#### Registration with Protocol in Address
+
+Alternatively, include the protocol in the address:
+
+```json
+{
+  "Name": "my-secure-service",
+  "ID": "my-secure-service-1",
+  "Address": "https://secure.example.com",
+  "Port": 443,
+  "Tags": ["env:prd", "context-root!/api"],
+  "Check": {
+    "HTTPS": "https://secure.example.com:443/health",
+    "Interval": "10s"
+  }
+}
+```
+
 ---
 
 ## 🧠 Design Goals

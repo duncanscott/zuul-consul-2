@@ -72,6 +72,23 @@ This document lists all fields available from Consul for each service instance a
 - **13 fields** currently published at `/`
 - **11 fields** available but not published
 
+## Protocol Detection
+
+The `url.full` field is computed using the following protocol detection priority:
+
+1. **`meta["protocol"]`** - If the service metadata contains a `protocol` key, use its value (e.g., `"https"`, `"http"`)
+2. **Address prefix** - If the `address` field starts with `https://` or `http://`, use that protocol
+3. **Default** - Use `http`
+
+### Examples
+
+| meta.protocol | address | Resulting protocol |
+|---------------|---------|-------------------|
+| `"https"` | `prospero.jgi.doe.gov` | `https` |
+| `"https"` | `http://prospero.jgi.doe.gov` | `https` (meta takes precedence) |
+| (not set) | `https://prospero.jgi.doe.gov` | `https` |
+| (not set) | `prospero.jgi.doe.gov` | `http` (default) |
+
 ## Data Sources
 
 Field data comes from the Vert.x Consul client library:

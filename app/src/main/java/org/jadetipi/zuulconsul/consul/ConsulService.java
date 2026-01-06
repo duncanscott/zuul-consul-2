@@ -75,9 +75,15 @@ public class ConsulService {
             path = "/" + path;
         }
 
-        // Detect protocol from address (e.g., "https://prospero.jgi.doe.gov")
+        // Determine protocol with priority:
+        // 1. meta["protocol"] (e.g., "https")
+        // 2. Address prefix (e.g., "https://host")
+        // 3. Default to "http"
         String protocol = "http";
-        if (address.startsWith("https://")) {
+        var meta = service.getMeta();
+        if (meta != null && meta.containsKey("protocol")) {
+            protocol = meta.get("protocol");
+        } else if (address.startsWith("https://")) {
             protocol = "https";
             address = address.substring(8); // Remove "https://"
         } else if (address.startsWith("http://")) {
