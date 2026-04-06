@@ -1,4 +1,4 @@
-package org.jadetipi.zuulconsul.service;
+package org.jadetipi.zuulconsul.util;
 
 import java.util.ArrayList;
 import java.util.Collections;

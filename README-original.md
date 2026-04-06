@@ -535,7 +535,7 @@ zuul-consul/
 │       ├── server/                         # Server startup
 │       │   ├── ConsulServerStartup.java    # Netty configuration
 │       │   └── ZuulConsulServer.java       # Main entry point
-│       └── service/
+│       └── util/
 │           └── UriParser.java              # URI parsing utilities
 ├── filters/                                # Groovy filters
 │   └── src/main/groovy/

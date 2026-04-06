@@ -95,7 +95,7 @@ Request → PRE filters → ROUTE filters → POST filters → Response
 - Builds service URI from address, port, and context root
 
 ### UriParser
-- Location: `app/src/main/groovy/doe/jgi/pi/pps/zuulconsul/service/UriParser.groovy`
+- Location: `app/src/main/java/org/jadetipi/zuulconsul/util/UriParser.java`
 - Parses incoming request URI to extract:
   - Tags (path elements containing `:`)
   - Service name (first path element without `:`)
